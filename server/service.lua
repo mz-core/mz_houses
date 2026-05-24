@@ -339,6 +339,55 @@ local function getHouseOrgCode(house)
   return normalizeOrgCode(property.orgCode)
 end
 
+local function runtimeAccessFromDatabaseRow(row)
+  if type(row) ~= 'table' then
+    return nil
+  end
+
+  local code = normalizeCode(row.code)
+  if not code then
+    return nil
+  end
+
+  local access = {
+    public = row.public == true,
+    owner = normalizeCitizenId(row.owner_citizenid),
+    keys = {},
+    enabled = row.enabled == true,
+    status = trim(row.status) ~= '' and trim(row.status) or 'active'
+  }
+
+  for _, keyRow in ipairs(MZHousesRepository.listKeys(code)) do
+    local citizenid = normalizeCitizenId(keyRow.citizenid)
+    if citizenid then
+      access.keys[citizenid] = true
+    end
+  end
+
+  return access, code
+end
+
+local function refreshRuntimeHouse(code)
+  code = normalizeCode(code)
+  if not code then
+    return false, 'invalid_house'
+  end
+
+  if not databaseEnabled() then
+    return false, 'database_disabled'
+  end
+
+  local row = MZHousesRepository.getHouseByCode(code)
+  if not row then
+    return false, 'house_not_found'
+  end
+
+  local access = runtimeAccessFromDatabaseRow(row)
+  RuntimeHouses[code] = row
+  RuntimeAccess[code] = access
+  return true, row
+end
+
 local function playerOrgMatches(org, orgCode)
   if type(org) ~= 'table' then
     return false
@@ -494,6 +543,10 @@ local function getConfiguredHouse(code)
 end
 
 local function getHouseVisibilityMode(code, house)
+  if databaseEnabled() and type(house) == 'table' and house.visibility ~= nil then
+    return normalizeVisibilityMode(house.visibility)
+  end
+
   local configured = getConfiguredHouse(code)
   if configured and configured.visibility ~= nil then
     return normalizeVisibilityMode(configured.visibility)
@@ -507,6 +560,10 @@ local function getHouseVisibilityMode(code, house)
 end
 
 local function getHouseListingConfig(code, house)
+  if databaseEnabled() and type(house) == 'table' and type(house.listing) == 'table' then
+    return house.listing
+  end
+
   local configured = getConfiguredHouse(code)
   if configured and type(configured.listing) == 'table' then
     return configured.listing
@@ -520,6 +577,10 @@ local function getHouseListingConfig(code, house)
 end
 
 local function getHouseRealestateConfig(code, house)
+  if databaseEnabled() and type(house) == 'table' and type(house.realestate) == 'table' then
+    return house.realestate
+  end
+
   local configured = getConfiguredHouse(code)
   if configured and type(configured.realestate) == 'table' then
     return configured.realestate
@@ -1057,10 +1118,12 @@ function MZHousesService.canEnterHouse(source, houseCode, isAdmin)
 end
 
 function MZHousesService.getHouseStashConfig(houseCode)
-  local code = normalizeCode(houseCode)
-  if not code then return nil, 'invalid_house' end
+  local access, err, code, house = MZHousesService.getAccessState(houseCode)
+  if not access then
+    return nil, err or 'house_not_found'
+  end
 
-  local configuredHouse = (MZHousesConfig.Houses or {})[code]
+  local configuredHouse = RuntimeHouses[code] or house or getConfiguredHouse(code)
   if type(configuredHouse) ~= 'table' then
     return nil, 'house_not_found'
   end
@@ -1171,10 +1234,12 @@ function MZHousesService.openHouseStash(source, houseCode, isAdmin)
 end
 
 function MZHousesService.getHouseWardrobeConfig(houseCode)
-  local code = normalizeCode(houseCode)
-  if not code then return nil, 'invalid_house' end
+  local access, err, code, house = MZHousesService.getAccessState(houseCode)
+  if not access then
+    return nil, err or 'house_not_found'
+  end
 
-  local configuredHouse = (MZHousesConfig.Houses or {})[code]
+  local configuredHouse = RuntimeHouses[code] or house or getConfiguredHouse(code)
   if type(configuredHouse) ~= 'table' then
     return nil, 'house_not_found'
   end
@@ -1278,10 +1343,12 @@ function MZHousesService.openHouseWardrobe(source, houseCode, isAdmin)
 end
 
 function MZHousesService.getHouseGarageConfig(houseCode)
-  local code = normalizeCode(houseCode)
-  if not code then return nil, 'invalid_house' end
+  local access, err, code, house = MZHousesService.getAccessState(houseCode)
+  if not access then
+    return nil, err or 'house_not_found'
+  end
 
-  local configuredHouse = (MZHousesConfig.Houses or {})[code]
+  local configuredHouse = RuntimeHouses[code] or house or getConfiguredHouse(code)
   if type(configuredHouse) ~= 'table' then
     return nil, 'house_not_found'
   end
@@ -1608,6 +1675,196 @@ function MZHousesService.CanPropertyBeListed(houseCode)
   return true, 'listable'
 end
 
+local function isValidAdminCode(code)
+  code = normalizeCode(code)
+  return code ~= nil and code:match('^[%w_%-]+$') ~= nil and #code <= 80
+end
+
+local function getDefaultAdminShell()
+  local shell = trim(MZHousesConfig.DefaultShell)
+  if shell == '' then
+    shell = 'shell_test'
+  end
+  return shell
+end
+
+local function defaultAdminFeatures()
+  return {
+    stash = true,
+    wardrobe = true,
+    garage = false,
+    furniture = false
+  }
+end
+
+local function defaultAdminListing()
+  return {
+    enabled = false,
+    type = 'sale',
+    price = nil,
+    label = 'Imovel a venda',
+    description = nil,
+    sign = {
+      enabled = false,
+      coords = nil,
+      heading = 0.0
+    }
+  }
+end
+
+local function defaultAdminRealestate(canBeListed)
+  return {
+    enabled = false,
+    canBeListed = canBeListed ~= false,
+    defaultPrice = nil,
+    listingType = 'sale'
+  }
+end
+
+local function defaultAdminGarage()
+  return {
+    enabled = false,
+    label = 'Garagem da Casa',
+    mode = 'private',
+    slots = tonumber((MZHousesConfig.Garage or {}).defaultSlots) or 2,
+    entry = nil,
+    spawn = nil,
+    store = nil,
+    storeRadius = tonumber((MZHousesConfig.Garage or {}).storeRadius) or 4.0,
+    vehicleTypes = { 'car', 'bike' }
+  }
+end
+
+local function getPersistableHouseData(code, patch)
+  patch = type(patch) == 'table' and patch or {}
+  local access = RuntimeAccess[code] or {}
+  local house = RuntimeHouses[code] or {}
+  local currentPublic = access.public == true
+  local nextPublic = currentPublic
+  if patch.public ~= nil then
+    nextPublic = patch.public == true
+  end
+
+  local nextEnabled = access.enabled == true
+  if patch.enabled ~= nil then
+    nextEnabled = patch.enabled == true
+  end
+
+  return {
+    code = code,
+    label = patch.label ~= nil and patch.label or house.label or code,
+    category = patch.category ~= nil and patch.category or house.category or 'residential',
+    subtype = patch.subtype ~= nil and patch.subtype or house.subtype or 'house',
+    ownerType = patch.ownerType ~= nil and patch.ownerType or house.ownerType or house.owner_type or 'player',
+    orgCode = patch.orgCode ~= nil and patch.orgCode or house.orgCode or house.org_code,
+    businessCode = patch.businessCode ~= nil and patch.businessCode or house.businessCode or house.business_code,
+    type = patch.type ~= nil and patch.type or house.type or 'shell',
+    shell = patch.shell ~= nil and patch.shell or house.shell or getDefaultAdminShell(),
+    entrance = patch.entrance ~= nil and patch.entrance or house.entrance,
+    garage = patch.garage ~= nil and patch.garage or house.garage or defaultAdminGarage(),
+    features = patch.features ~= nil and patch.features or house.features or defaultAdminFeatures(),
+    visibility = patch.visibility ~= nil and patch.visibility or house.visibility or 'restricted',
+    listing = patch.listing ~= nil and patch.listing or house.listing or defaultAdminListing(),
+    realestate = patch.realestate ~= nil and patch.realestate or house.realestate or defaultAdminRealestate(true),
+    status = patch.status ~= nil and patch.status or access.status or house.status or 'active',
+    enabled = nextEnabled,
+    access = {
+      public = nextPublic
+    }
+  }
+end
+
+local function refreshAfterAdminUpdate(code, action, actorSource, meta)
+  local refreshed = refreshRuntimeHouse(code)
+  MZHousesService.log(action, code, actorSource, nil, meta or {})
+  return refreshed
+end
+
+function MZHousesService.createAdminProperty(actorSource, payload)
+  payload = type(payload) == 'table' and payload or {}
+  local code = normalizeCode(payload.code)
+  if not isValidAdminCode(code) then
+    return false, 'invalid_code'
+  end
+
+  if not databaseEnabled() then
+    return false, 'database_disabled'
+  end
+
+  if MZHousesRepository.getHouseByCode(code) then
+    return false, 'house_exists'
+  end
+
+  local label = trim(payload.label)
+  if label == '' then
+    return false, 'invalid_label'
+  end
+
+  local entrance = asVector4(payload.entrance)
+  if not entrance then
+    return false, 'invalid_entrance'
+  end
+
+  local data = {
+    label = label,
+    category = 'residential',
+    subtype = 'house',
+    ownerType = 'player',
+    orgCode = nil,
+    businessCode = nil,
+    type = 'shell',
+    shell = trim(payload.shell) ~= '' and trim(payload.shell) or getDefaultAdminShell(),
+    entrance = entrance,
+    status = 'draft',
+    enabled = true,
+    visibility = 'restricted',
+    features = defaultAdminFeatures(),
+    access = { public = false },
+    listing = defaultAdminListing(),
+    realestate = defaultAdminRealestate(true),
+    garage = defaultAdminGarage()
+  }
+
+  local ok, err = MZHousesRepository.createHouseFromAdmin(code, data)
+  if not ok then
+    return false, err or 'create_failed'
+  end
+
+  refreshRuntimeHouse(code)
+  MZHousesService.log('house.admin.create', code, actorSource, nil, {
+    label = label,
+    entrance = vector4Payload(entrance),
+    shell = data.shell
+  })
+
+  return true, { houseCode = code, label = label }
+end
+
+function MZHousesService.updateAdminProperty(actorSource, houseCode, patch, action, meta)
+  local code = normalizeCode(houseCode)
+  if not code then
+    return false, 'invalid_house'
+  end
+
+  if not databaseEnabled() then
+    return false, 'database_disabled'
+  end
+
+  local access = MZHousesService.getAccessState(code)
+  if not access then
+    return false, 'house_not_found'
+  end
+
+  local data = getPersistableHouseData(code, patch)
+  local ok, err = MZHousesRepository.updateHouseFromAdmin(code, data)
+  if not ok then
+    return false, err or 'update_failed'
+  end
+
+  refreshAfterAdminUpdate(code, action or 'house.admin.update', actorSource, meta or patch)
+  return true, { houseCode = code }
+end
+
 function MZHousesService.listHouseKeys(houseCode, source, isAdmin)
   local access, err, code, house = MZHousesService.getAccessState(houseCode)
   if not access then return false, err end
@@ -1694,13 +1951,13 @@ local function publicRealestatePayload(code, house, canBeListed)
   }
 end
 
-local function publicGaragePayload(garage)
-  if type(garage) ~= 'table' or garage.enabled ~= true then
+local function publicGaragePayload(garage, includeDisabled)
+  if type(garage) ~= 'table' or (includeDisabled ~= true and garage.enabled ~= true) then
     return nil
   end
 
   return {
-    enabled = true,
+    enabled = garage.enabled == true,
     label = trim(garage.label) ~= '' and trim(garage.label) or nil,
     mode = trim(garage.mode) ~= '' and trim(garage.mode) or nil,
     slots = tonumber(garage.slots),
@@ -1785,6 +2042,52 @@ function MZHousesService.getPublicPropertyInfo(houseCode)
   }
 
   return payload, nil
+end
+
+function MZHousesService.getAdminPropertyInfo(houseCode)
+  local access, err, code, house = MZHousesService.getAccessState(houseCode)
+  if not access then
+    return nil, err or 'house_not_found'
+  end
+
+  house = RuntimeHouses[code] or house or {}
+  local configured = getConfiguredHouse(code) or {}
+  local property = normalizeHouseProperty(house)
+  local canBeListed, canBeListedReason = MZHousesService.CanPropertyBeListed(code)
+  local keys = {}
+  for citizenid, enabled in pairs(access.keys or {}) do
+    if enabled == true then
+      keys[#keys + 1] = citizenid
+    end
+  end
+  table.sort(keys)
+
+  return {
+    code = code,
+    label = house.label or configured.label or code,
+    category = property.category,
+    subtype = property.subtype,
+    ownerType = property.ownerType,
+    orgCode = property.orgCode,
+    businessCode = property.businessCode,
+    type = house.type or configured.type or 'shell',
+    shell = house.shell or configured.shell,
+    entrance = vector4Payload(house.entrance or configured.entrance),
+    features = property.features,
+    garage = publicGaragePayload(house.garage or configured.garage, true),
+    visibility = getHouseVisibilityMode(code, house),
+    status = access.status,
+    enabled = access.enabled == true,
+    public = access.public == true,
+    listing = publicListingPayload(code, house),
+    realestate = publicRealestatePayload(code, house, canBeListed),
+    canBeListed = canBeListed == true,
+    canBeListedReason = canBeListedReason,
+    owner = access.owner,
+    keys = keys,
+    keyCount = #keys,
+    database = databaseEnabled()
+  }, nil
 end
 
 function MZHousesService.GetPropertyByCode(houseCode)

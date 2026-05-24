@@ -27,7 +27,9 @@ local function normalizeCategory(value)
     residential = true,
     org = true,
     business = true,
-    public = true
+    public = true,
+    government = true,
+    other = true
   }
 
   value = tostring(value or 'residential'):lower()
@@ -35,18 +37,10 @@ local function normalizeCategory(value)
 end
 
 local function normalizeSubtype(value)
-  local allowed = {
-    house = true,
-    apartment = true,
-    org_base = true,
-    gang_base = true,
-    business = true,
-    motel = true,
-    hotel = true
-  }
-
   value = tostring(value or 'house'):lower()
-  return allowed[value] and value or 'house'
+  value = value:gsub('[^%w_%-]', '_'):sub(1, 40)
+  if value == '' then value = 'house' end
+  return value
 end
 
 local function normalizeOwnerType(value)
@@ -54,7 +48,8 @@ local function normalizeOwnerType(value)
     player = true,
     org = true,
     business = true,
-    none = true
+    none = true,
+    server = true
   }
 
   value = tostring(value or 'player'):lower()
@@ -171,6 +166,44 @@ local function databaseBool(value)
   return textValue == '1' or textValue == 'true'
 end
 
+local function normalizeVisibility(value)
+  value = tostring(value or 'auto'):lower()
+  if value == 'auto' or value == 'public' or value == 'restricted' or value == 'hidden' then
+    return value
+  end
+
+  return 'auto'
+end
+
+local function normalizeListing(data)
+  data = type(data) == 'table' and data or {}
+  local sign = type(data.sign) == 'table' and data.sign or {}
+
+  return {
+    enabled = data.enabled == true,
+    type = trim(data.type) ~= '' and trim(data.type) or 'sale',
+    price = tonumber(data.price),
+    label = trim(data.label) ~= '' and trim(data.label) or 'Imovel a venda',
+    description = trim(data.description) ~= '' and trim(data.description) or nil,
+    sign = {
+      enabled = sign.enabled == true,
+      coords = vectorToPlain(sign.coords),
+      heading = tonumber(sign.heading) or 0.0
+    }
+  }
+end
+
+local function normalizeRealestate(data)
+  data = type(data) == 'table' and data or {}
+
+  return {
+    enabled = data.enabled == true,
+    canBeListed = data.canBeListed ~= false,
+    defaultPrice = tonumber(data.defaultPrice),
+    listingType = trim(data.listingType) ~= '' and trim(data.listingType) or 'sale'
+  }
+end
+
 local function rowToHouse(row)
   if type(row) ~= 'table' then return nil end
 
@@ -193,6 +226,9 @@ local function rowToHouse(row)
   row.business_code = property.businessCode
   row.businessCode = property.businessCode
   row.features = property.features
+  row.visibility = normalizeVisibility(row.visibility)
+  row.listing = normalizeListing(decodeJson(row.listing_json, nil))
+  row.realestate = normalizeRealestate(decodeJson(row.realestate_json, nil))
   row.enabled = databaseBool(row.enabled)
   row.public = databaseBool(row.public)
   return row
@@ -253,13 +289,17 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
   local garageJson = encodeJson(data.garage or {})
   local property = normalizePropertyFields(data)
   local featuresJson = encodeJson(property.features)
+  local visibility = normalizeVisibility(data.visibility)
+  local listingJson = encodeJson(normalizeListing(data.listing))
+  local realestateJson = encodeJson(normalizeRealestate(data.realestate))
 
   if not existing then
     MySQL.insert.await([[
       INSERT INTO mz_houses (
         code, label, category, subtype, owner_type, org_code, business_code,
-        type, shell, entrance_json, garage_json, features_json, status, enabled, public, owner_citizenid
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        type, shell, entrance_json, garage_json, features_json, visibility, listing_json, realestate_json,
+        status, enabled, public, owner_citizenid
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
       code,
       label,
@@ -273,6 +313,9 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
       entranceJson,
       garageJson,
       featuresJson,
+      visibility,
+      listingJson,
+      realestateJson,
       status,
       enabled,
       public,
@@ -286,11 +329,15 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
   if dbConfig.syncPublicFromConfig == true then
     nextPublic = public
   end
+  local nextVisibility = normalizeVisibility(existing.visibility)
+  local nextListingJson = encodeJson(normalizeListing(existing.listing))
+  local nextRealestateJson = encodeJson(normalizeRealestate(existing.realestate))
 
   MySQL.update.await([[
     UPDATE mz_houses
     SET label = ?, category = ?, subtype = ?, owner_type = ?, org_code = ?, business_code = ?,
-        type = ?, shell = ?, entrance_json = ?, garage_json = ?, features_json = ?, status = ?, enabled = ?, public = ?
+        type = ?, shell = ?, entrance_json = ?, garage_json = ?, features_json = ?,
+        visibility = ?, listing_json = ?, realestate_json = ?, status = ?, enabled = ?, public = ?
     WHERE code = ?
   ]], {
     label,
@@ -304,6 +351,9 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
     entranceJson,
     garageJson,
     featuresJson,
+    nextVisibility,
+    nextListingJson,
+    nextRealestateJson,
     status,
     enabled,
     nextPublic,
@@ -311,6 +361,95 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
   })
 
   return true, 'updated'
+end
+
+function MZHousesRepository.createHouseFromAdmin(code, data)
+  code = normalizeCode(code)
+  if not code or type(data) ~= 'table' then
+    return false, 'invalid_house'
+  end
+
+  if MZHousesRepository.getHouseByCode(code) then
+    return false, 'house_exists'
+  end
+
+  local label = trim(data.label)
+  if label == '' then label = code end
+
+  local property = normalizePropertyFields(data)
+  MySQL.insert.await([[
+    INSERT INTO mz_houses (
+      code, label, category, subtype, owner_type, org_code, business_code,
+      type, shell, entrance_json, garage_json, features_json, visibility,
+      listing_json, realestate_json, status, enabled, public, owner_citizenid
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+  ]], {
+    code,
+    label,
+    property.category,
+    property.subtype,
+    property.ownerType,
+    property.orgCode,
+    property.businessCode,
+    trim(data.type) ~= '' and trim(data.type) or 'shell',
+    trim(data.shell) ~= '' and trim(data.shell) or nil,
+    encodeJson(vectorToPlain(data.entrance)),
+    encodeJson(data.garage or {}),
+    encodeJson(property.features),
+    normalizeVisibility(data.visibility),
+    encodeJson(normalizeListing(data.listing)),
+    encodeJson(normalizeRealestate(data.realestate)),
+    trim(data.status) ~= '' and trim(data.status) or 'draft',
+    data.enabled ~= false and 1 or 0,
+    type(data.access) == 'table' and data.access.public == true and 1 or 0
+  })
+
+  return true, 'created'
+end
+
+function MZHousesRepository.updateHouseFromAdmin(code, data)
+  code = normalizeCode(code)
+  if not code or type(data) ~= 'table' then
+    return false, 'invalid_house'
+  end
+
+  local existing = MZHousesRepository.getHouseByCode(code)
+  if not existing then
+    return false, 'house_not_found'
+  end
+
+  local label = trim(data.label)
+  if label == '' then label = existing.label or code end
+
+  local property = normalizePropertyFields(data)
+  local affected = MySQL.update.await([[
+    UPDATE mz_houses
+    SET label = ?, category = ?, subtype = ?, owner_type = ?, org_code = ?, business_code = ?,
+        type = ?, shell = ?, entrance_json = ?, garage_json = ?, features_json = ?,
+        visibility = ?, listing_json = ?, realestate_json = ?, status = ?, enabled = ?, public = ?
+    WHERE code = ?
+  ]], {
+    label,
+    property.category,
+    property.subtype,
+    property.ownerType,
+    property.orgCode,
+    property.businessCode,
+    trim(data.type) ~= '' and trim(data.type) or 'shell',
+    trim(data.shell) ~= '' and trim(data.shell) or nil,
+    encodeJson(vectorToPlain(data.entrance)),
+    encodeJson(data.garage or {}),
+    encodeJson(property.features),
+    normalizeVisibility(data.visibility),
+    encodeJson(normalizeListing(data.listing)),
+    encodeJson(normalizeRealestate(data.realestate)),
+    trim(data.status) ~= '' and trim(data.status) or 'active',
+    data.enabled ~= false and 1 or 0,
+    type(data.access) == 'table' and data.access.public == true and 1 or 0,
+    code
+  })
+
+  return (tonumber(affected) or 0) > 0
 end
 
 function MZHousesRepository.setOwner(code, citizenid)

@@ -13,6 +13,7 @@ shared_scripts {
 
 client_scripts {
   'client/main.lua',
+  'client/admin_menu.lua',
   'client/interactions.lua'
 }
 
@@ -21,6 +22,7 @@ server_scripts {
   'server/prepare.lua',
   'server/repository.lua',
   'server/service.lua',
+  'server/admin_menu.lua',
   'server/main.lua'
 }
 

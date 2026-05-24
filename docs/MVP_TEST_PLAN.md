@@ -187,6 +187,37 @@ ORDER BY id DESC
 LIMIT 100;
 ```
 
+## 11.2. Cadastro tecnico admin
+
+- [ ] Como admin, executar `/mhouse_create casa_admin_01 Casa Admin 01`.
+- [ ] `/mhouse_info casa_admin_01` mostra `status=draft`, `public=false`, `visibility=restricted`.
+- [ ] `/mhouse_setentrance casa_admin_01` persiste a entrada atual.
+- [ ] `/mhouse_setshell casa_admin_01 shell_test` persiste o shell.
+- [ ] `/mhouse_garage_enable casa_admin_01 true`.
+- [ ] `/mhouse_garage_entry_here casa_admin_01`.
+- [ ] `/mhouse_garage_spawn_here casa_admin_01`.
+- [ ] `/mhouse_garage_store_here casa_admin_01`.
+- [ ] `/mhouse_garage_slots casa_admin_01 2`.
+- [ ] `/mhouse_garage_mode casa_admin_01 private`.
+- [ ] `/mhouse_setlistable casa_admin_01 true`.
+- [ ] `/mhouse_access casa_admin_01` mostra `canBeListed=true`.
+- [ ] Player sem admin nao consegue usar `/mhouse_create`, `/mhouse_setentrance` ou comandos admin.
+- [ ] Reiniciar `mz_houses` e confirmar `/mhouse_info casa_admin_01`.
+- [ ] Conferir `mz_logs` com actions `house.admin.create`, `house.admin.entrance.set`, `house.admin.garage.*`.
+
+## 11.3. Menu admin in-game
+
+- [ ] Como admin, executar `/mhouse_admin`.
+- [ ] Criar imovel pelo menu em posicao atual.
+- [ ] Buscar o imovel criado por codigo.
+- [ ] Editar label, shell e entrada pelo menu.
+- [ ] Ativar garagem e definir entry/spawn/store pelo menu.
+- [ ] Alterar slots/mode da garagem pelo menu.
+- [ ] Alterar public, visibility e listable pelo menu.
+- [ ] Setar dono, limpar dono, dar/remover chave pelo menu.
+- [ ] Player sem admin nao abre `/mhouse_admin`.
+- [ ] Conferir `mz_logs` com actions `house.admin.*`, `house.owner.*` e `house.key.*`.
+
 ## 12. Restart final
 
 - [ ] `restart mz_houses` nao prende player dentro do interior.

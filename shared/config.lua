@@ -29,7 +29,34 @@ MZHousesConfig.Admin = {
   listKeys = 'mhouse_keys',
   access = 'mhouse_access',
   aceCheck = 'mhouse_acecheck',
-  reload = 'mhouse_reload'
+  reload = 'mhouse_reload',
+
+  create = 'mhouse_create',
+  archive = 'mhouse_archive',
+  enable = 'mhouse_enable',
+  disable = 'mhouse_disable',
+  setLabel = 'mhouse_setlabel',
+  setEntrance = 'mhouse_setentrance',
+  setShell = 'mhouse_setshell',
+  setCategory = 'mhouse_setcategory',
+  setOrg = 'mhouse_setorg',
+  setPublic = 'mhouse_setpublic',
+  setListable = 'mhouse_setlistable',
+  setVisibility = 'mhouse_setvisibility',
+  garageEnable = 'mhouse_garage_enable',
+  garageSlots = 'mhouse_garage_slots',
+  garageMode = 'mhouse_garage_mode',
+  info = 'mhouse_info'
+}
+
+MZHousesConfig.AdminMenu = {
+  enabled = true,
+  command = 'mhouse_admin',
+  ace = 'group.mz_owner',
+  useOxLib = true,
+  nearPropertyRadius = 25.0,
+  maxNearbyResults = 10,
+  debug = false
 }
 
 MZHousesConfig.Database = {

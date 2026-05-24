@@ -618,6 +618,78 @@ Com banco ativo, estes comandos persistem em `mz_houses`/`mz_house_keys` e atual
 /mhouse_reload
 ```
 
+### Comandos admin de cadastro tecnico
+
+Esses comandos criam/editam o cadastro tecnico do imovel. Eles exigem `group.mz_owner`, validado manualmente no server. Player/corretor comum nao cria imovel.
+
+```txt
+/mhouse_create codigo Label do Imovel
+/mhouse_archive codigo
+/mhouse_enable codigo
+/mhouse_disable codigo
+/mhouse_setlabel codigo Novo Label
+/mhouse_setentrance codigo
+/mhouse_setshell codigo shell_test
+/mhouse_setcategory codigo residential house player
+/mhouse_setorg codigo orgCode
+/mhouse_setpublic codigo true|false
+/mhouse_setlistable codigo true|false
+/mhouse_setvisibility codigo auto|public|restricted|hidden
+/mhouse_garage_enable codigo true|false
+/mhouse_garage_entry_here codigo
+/mhouse_garage_spawn_here codigo
+/mhouse_garage_store_here codigo
+/mhouse_garage_slots codigo slots
+/mhouse_garage_mode codigo private|shared
+/mhouse_info codigo
+```
+
+Fluxo exemplo:
+
+```txt
+/mhouse_create casa_mirror_01 Casa Mirror Park 01
+/mhouse_setshell casa_mirror_01 shell_test
+/mhouse_setentrance casa_mirror_01
+/mhouse_garage_enable casa_mirror_01 true
+/mhouse_garage_entry_here casa_mirror_01
+/mhouse_garage_spawn_here casa_mirror_01
+/mhouse_garage_store_here casa_mirror_01
+/mhouse_setlistable casa_mirror_01 true
+/mhouse_info casa_mirror_01
+```
+
+`/mhouse_create` usa a posicao atual do admin como entrada e cria residencial/player por padrao: `status = draft`, `visibility = restricted`, `public = false`, sem dono e sem garagem ativa. Nao aparece para todos automaticamente.
+
+`/mhouse_archive` e seguro para fase atual: desativa e esconde. Nao existe delete fisico nesta fase.
+
+`public` controla entrada publica. `listable` controla somente se um futuro `mz_realestate` pode anunciar. `visibility` controla marker/interact.
+
+### Menu admin in-game
+
+O menu `/mhouse_admin` e a camada pratica para admins criarem/editarem imoveis no mundo. Ele usa `ox_lib` (`context` e `inputDialog`), ja declarado no `fxmanifest`, e chama callbacks server-side que reutilizam os mesmos services dos comandos. O server sempre revalida `group.mz_owner`.
+
+```txt
+/mhouse_admin
+```
+
+Fluxo recomendado:
+
+```txt
+/mhouse_admin
+Criar imovel aqui
+Editar imovel criado
+Entrada / Interior -> Definir entrada aqui
+Entrada / Interior -> Alterar shell
+Garagem -> Ativar garagem
+Garagem -> Definir ponto de abrir aqui
+Garagem -> Definir spawn aqui
+Garagem -> Definir ponto de guardar aqui
+Visibilidade / Listavel -> Listable true
+Informacoes
+```
+
+Se `ox_lib` nao estiver disponivel, o menu avisa e os comandos acima continuam como fallback tecnico. O menu nao implementa compra, venda, corretor, comissao, NUI ou placa de venda.
+
 `/mhouse_access casa_teste_01` mostra tambem o modelo estrutural:
 
 ```txt

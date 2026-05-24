@@ -129,11 +129,29 @@ function MZHouses.GetHouse(houseCode)
   end
 
   local house = (MZHousesConfig.Houses or {})[code]
-  if type(house) ~= 'table' then
-    return nil, 'house_not_found'
+  if type(house) == 'table' then
+    return house, nil, code
   end
 
-  return house, nil, code
+  local visibleHouses = VisibleHousesCache.houses
+  if type(visibleHouses) ~= 'table' then
+    visibleHouses = MZHouses.RefreshVisibleHouses and MZHouses.RefreshVisibleHouses(true) or nil
+  end
+
+  if type(visibleHouses) == 'table' then
+    local visibleHouse = visibleHouses[code]
+    if type(visibleHouse) == 'table' then
+      return visibleHouse, nil, code
+    end
+
+    for _, candidate in pairs(visibleHouses) do
+      if type(candidate) == 'table' and trim(candidate.code) == code then
+        return candidate, nil, code
+      end
+    end
+  end
+
+  return nil, 'house_not_found'
 end
 
 function MZHouses.GetHouses()
@@ -754,6 +772,18 @@ garage = {
   end
 
   print(('[mz_houses] Sugestao completa para %s:\n%s'):format(code, block))
+
+  TriggerServerEvent('mz_houses:server:setAdminGaragePoint', {
+    code = code,
+    kind = kind,
+    point = {
+      x = coords.x,
+      y = coords.y,
+      z = coords.z,
+      w = heading,
+      heading = heading
+    }
+  })
 end
 
 local function drawText3d(coords, text, scale)
@@ -1252,6 +1282,78 @@ local function registerDebugCommands()
   end, false)
 end
 
+local function registerAdminEditCommands()
+  local admin = MZHousesConfig.Admin or {}
+  local commands = MZHousesConfig.Commands or {}
+
+  RegisterCommand(tostring(admin.create or 'mhouse_create'), function(_, args)
+    args = type(args) == 'table' and args or {}
+    local code = trim(args[1])
+    local labelParts = {}
+    for index = 2, #args do
+      labelParts[#labelParts + 1] = tostring(args[index])
+    end
+    local label = table.concat(labelParts, ' ')
+
+    if code == '' or trim(label) == '' then
+      MZHouses.Notify('Uso: /mhouse_create codigo Label do Imovel', 'error')
+      return
+    end
+
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+    local heading = GetEntityHeading(ped)
+    TriggerServerEvent('mz_houses:server:createAdminProperty', {
+      code = code,
+      label = label,
+      entrance = {
+        x = coords.x,
+        y = coords.y,
+        z = coords.z,
+        w = heading,
+        heading = heading
+      }
+    })
+  end, false)
+
+  RegisterCommand(tostring(admin.setEntrance or 'mhouse_setentrance'), function(_, args)
+    args = type(args) == 'table' and args or {}
+    local code = trim(args[1])
+    if code == '' then
+      MZHouses.Notify('Uso: /mhouse_setentrance codigo', 'error')
+      return
+    end
+
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+    local heading = GetEntityHeading(ped)
+    TriggerServerEvent('mz_houses:server:setAdminEntrance', {
+      code = code,
+      entrance = {
+        x = coords.x,
+        y = coords.y,
+        z = coords.z,
+        w = heading,
+        heading = heading
+      }
+    })
+  end, false)
+
+  if commands.enabled ~= true then
+    RegisterCommand(tostring(commands.garageEntryHere or 'mhouse_garage_entry_here'), function(_, args)
+      printGaragePointHere('entry', args and args[1])
+    end, false)
+
+    RegisterCommand(tostring(commands.garageSpawnHere or 'mhouse_garage_spawn_here'), function(_, args)
+      printGaragePointHere('spawn', args and args[1])
+    end, false)
+
+    RegisterCommand(tostring(commands.garageStoreHere or 'mhouse_garage_store_here'), function(_, args)
+      printGaragePointHere('store', args and args[1])
+    end, false)
+  end
+end
+
 RegisterNetEvent('mz_houses:client:runCommand', function(action, args)
   MZHouses.RunCommandAction(action, args)
 end)
@@ -1342,6 +1444,7 @@ MZHouses.AsVector3 = asVector3
 MZHouses.AsVector4 = asVector4
 
 registerDebugCommands()
+registerAdminEditCommands()
 runStashMarkerLoop()
 runWardrobeMarkerLoop()
 runExitMarkerLoop()

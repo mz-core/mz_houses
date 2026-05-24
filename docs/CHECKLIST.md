@@ -56,6 +56,20 @@
 - [ ] Exports de mutacao de owner/chaves sem `actorSource` retornam `actor_required`.
 - [ ] Exports de mutacao de owner/chaves com ator sem `group.mz_owner` retornam `admin_required`.
 - [ ] Exports de mutacao de owner/chaves com admin funcionam e disparam refresh de visibilidade.
+- [ ] `/mhouse_create casa_admin_01 Casa Admin 01` cria imovel tecnico como admin.
+- [ ] Player sem `group.mz_owner` nao consegue usar comandos admin de cadastro.
+- [ ] Novo imovel nasce `public=false`, `visibility=restricted`, `status=draft`, sem dono.
+- [ ] `/mhouse_setentrance`, `/mhouse_setshell`, `/mhouse_setcategory`, `/mhouse_setpublic`, `/mhouse_setlistable` persistem.
+- [ ] `/mhouse_archive` desativa/esconde sem deletar linha do banco.
+- [ ] `/mhouse_info casa_admin_01` mostra resumo tecnico sem listar chaves completas.
+- [ ] Comandos de garagem admin persistem entry/spawn/store/mode/slots.
+- [ ] Cada comando admin grava action `house.admin.*` em `mz_logs`.
+- [ ] `/mhouse_admin` abre menu para admin `group.mz_owner`.
+- [ ] Player sem `group.mz_owner` nao abre nem consegue usar callbacks/eventos do menu admin.
+- [ ] Menu cria imovel aqui usando posicao/heading atual.
+- [ ] Menu edita label, shell, entrada, categoria, orgCode, public, visibility e listable.
+- [ ] Menu configura garagem: enabled, entry, spawn, store, slots e mode.
+- [ ] Menu Dono/Chaves chama os fluxos seguros de owner/key existentes.
 - [ ] Propriedade org de teste mostra `accessMode=org` e `orgCode=...`.
 - [ ] Propriedade org de teste mostra `enterAccess=member` ou a capability/grade configurada.
 - [ ] Propriedade org de teste mostra `featuresAccess=stash:... wardrobe:... garage:...`.

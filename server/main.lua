@@ -93,6 +93,63 @@ local function refreshVisibilityTargets(reason)
   TriggerClientEvent('mz_houses:client:refreshVisibility', -1, reason or 'server_refresh')
 end
 
+local function parseBool(value)
+  value = tostring(value or ''):lower():gsub('^%s+', ''):gsub('%s+$', '')
+  if value == 'true' or value == '1' or value == 'yes' or value == 'sim' or value == 'on' then
+    return true
+  end
+
+  if value == 'false' or value == '0' or value == 'no' or value == 'nao' or value == 'off' then
+    return false
+  end
+
+  return nil
+end
+
+local function joinArgs(args, startIndex)
+  args = type(args) == 'table' and args or {}
+  startIndex = tonumber(startIndex) or 1
+  local out = {}
+  for index = startIndex, #args do
+    out[#out + 1] = tostring(args[index])
+  end
+  return table.concat(out, ' ')
+end
+
+local isHouseAdmin
+
+local function adminUpdate(source, code, patch, action, meta, successMessage)
+  if not isHouseAdmin(source) then
+    return reply(source, 'Voce nao tem permissao para usar este comando.')
+  end
+
+  local ok, result = MZHousesService.updateAdminProperty(source, code, patch, action, meta)
+  if not ok then
+    return reply(source, ('Erro: %s'):format(tostring(result)))
+  end
+
+  refreshVisibilityTargets(action or 'admin_update')
+  reply(source, successMessage or ('Imovel atualizado: %s'):format(result.houseCode))
+end
+
+local function coordsFromPayload(payload, includeHeading)
+  payload = type(payload) == 'table' and payload or {}
+  local coords = type(payload.coords) == 'table' and payload.coords or payload
+  local x = tonumber(coords.x or coords[1])
+  local y = tonumber(coords.y or coords[2])
+  local z = tonumber(coords.z or coords[3])
+  if not x or not y or not z then
+    return nil
+  end
+
+  if includeHeading == true then
+    local h = tonumber(payload.heading or coords.w or coords.h or coords[4]) or 0.0
+    return vector4(x, y, z, h)
+  end
+
+  return vector3(x, y, z)
+end
+
 local function isAceAllowed(src, ace)
   local sourceId = tonumber(src)
   if not sourceId or sourceId <= 0 then return false end
@@ -120,7 +177,7 @@ local function hasOwnerAce(source)
   return isAceAllowed(src, getAdminAce())
 end
 
-local function isHouseAdmin(source)
+isHouseAdmin = function(source)
   local src = tonumber(source) or 0
   if src == 0 then return true end
 
@@ -392,6 +449,191 @@ local function registerAdminCommands()
     reply(source, ('Casas recarregadas. total=%d'):format(MZHousesService.countHouses()))
   end, false)
 
+  RegisterCommand(tostring(admin.archive or 'mhouse_archive'), function(source, args)
+    adminUpdate(source, args and args[1], { enabled = false, status = 'archived', visibility = 'hidden' }, 'house.admin.archive', nil, 'Imovel arquivado/desativado.')
+  end, false)
+
+  RegisterCommand(tostring(admin.enable or 'mhouse_enable'), function(source, args)
+    adminUpdate(source, args and args[1], { enabled = true, status = 'active' }, 'house.admin.enable', nil, 'Imovel ativado.')
+  end, false)
+
+  RegisterCommand(tostring(admin.disable or 'mhouse_disable'), function(source, args)
+    adminUpdate(source, args and args[1], { enabled = false, status = 'disabled' }, 'house.admin.disable', nil, 'Imovel desativado.')
+  end, false)
+
+  RegisterCommand(tostring(admin.setLabel or 'mhouse_setlabel'), function(source, args)
+    local label = joinArgs(args, 2)
+    if trim(args and args[1]) == '' or trim(label) == '' then
+      return reply(source, 'Uso: /mhouse_setlabel codigo Label do Imovel')
+    end
+    adminUpdate(source, args[1], { label = label }, 'house.admin.label.set', { label = label }, 'Label atualizado.')
+  end, false)
+
+  RegisterCommand(tostring(admin.setShell or 'mhouse_setshell'), function(source, args)
+    local shell = trim(args and args[2])
+    if trim(args and args[1]) == '' or shell == '' then
+      return reply(source, 'Uso: /mhouse_setshell codigo shellName')
+    end
+    adminUpdate(source, args[1], { shell = shell, type = 'shell' }, 'house.admin.shell.set', { shell = shell }, 'Shell atualizado.')
+  end, false)
+
+  RegisterCommand(tostring(admin.setCategory or 'mhouse_setcategory'), function(source, args)
+    local code = trim(args and args[1])
+    local category = trim(args and args[2])
+    local subtype = trim(args and args[3])
+    local ownerType = trim(args and args[4])
+    if code == '' or category == '' or subtype == '' or ownerType == '' then
+      return reply(source, 'Uso: /mhouse_setcategory codigo residential house player')
+    end
+
+    local patch = { category = category, subtype = subtype, ownerType = ownerType }
+    if category == 'org' or ownerType == 'org' then
+      patch.realestate = { enabled = false, canBeListed = false, defaultPrice = nil, listingType = 'sale' }
+    end
+
+    adminUpdate(source, code, patch, 'house.admin.category.set', patch, 'Categoria atualizada.')
+    if category == 'org' or ownerType == 'org' then
+      reply(source, 'Aviso: configure /mhouse_setorg codigo orgCode para acesso de org funcionar.')
+    end
+  end, false)
+
+  RegisterCommand(tostring(admin.setOrg or 'mhouse_setorg'), function(source, args)
+    local code = trim(args and args[1])
+    local orgCode = trim(args and args[2])
+    if code == '' or orgCode == '' then
+      return reply(source, 'Uso: /mhouse_setorg codigo orgCode')
+    end
+    adminUpdate(source, code, { orgCode = orgCode }, 'house.admin.org.set', { orgCode = orgCode }, 'Org vinculada.')
+  end, false)
+
+  RegisterCommand(tostring(admin.setPublic or 'mhouse_setpublic'), function(source, args)
+    local value = parseBool(args and args[2])
+    if trim(args and args[1]) == '' or value == nil then
+      return reply(source, 'Uso: /mhouse_setpublic codigo true|false')
+    end
+    adminUpdate(source, args[1], { public = value }, 'house.admin.public.set', { public = value }, 'Public atualizado.')
+  end, false)
+
+  RegisterCommand(tostring(admin.setListable or 'mhouse_setlistable'), function(source, args)
+    if not isHouseAdmin(source) then
+      return reply(source, 'Voce nao tem permissao para usar este comando.')
+    end
+
+    local code = trim(args and args[1])
+    local value = parseBool(args and args[2])
+    if code == '' or value == nil then
+      return reply(source, 'Uso: /mhouse_setlistable codigo true|false')
+    end
+
+    if value == true then
+      local property = MZHousesService.getAdminPropertyInfo(code)
+      if property and (property.category == 'org' or property.ownerType == 'org') then
+        return reply(source, 'Imovel org/base nao pode ser listable por padrao.')
+      end
+    end
+
+    adminUpdate(source, code, {
+      realestate = { enabled = false, canBeListed = value, defaultPrice = nil, listingType = 'sale' }
+    }, 'house.admin.listable.set', { canBeListed = value }, 'Listable atualizado.')
+  end, false)
+
+  RegisterCommand(tostring(admin.setVisibility or 'mhouse_setvisibility'), function(source, args)
+    local visibility = trim(args and args[2])
+    if trim(args and args[1]) == '' or visibility == '' then
+      return reply(source, 'Uso: /mhouse_setvisibility codigo auto|public|restricted|hidden')
+    end
+    adminUpdate(source, args[1], { visibility = visibility }, 'house.admin.visibility.set', { visibility = visibility }, 'Visibilidade atualizada.')
+  end, false)
+
+  RegisterCommand(tostring(admin.garageEnable or 'mhouse_garage_enable'), function(source, args)
+    local code = trim(args and args[1])
+    local value = parseBool(args and args[2])
+    if code == '' or value == nil then
+      return reply(source, 'Uso: /mhouse_garage_enable codigo true|false')
+    end
+    local property = MZHousesService.getAdminPropertyInfo(code)
+    local garage = type(property) == 'table' and type(property.garage) == 'table' and property.garage or {}
+    garage.enabled = value
+    garage.label = garage.label or 'Garagem da Casa'
+    garage.mode = garage.mode or 'private'
+    garage.slots = tonumber(garage.slots) or tonumber((MZHousesConfig.Garage or {}).defaultSlots) or 2
+    garage.storeRadius = tonumber(garage.storeRadius) or tonumber((MZHousesConfig.Garage or {}).storeRadius) or 4.0
+    local features = type(property) == 'table' and type(property.features) == 'table' and property.features or {}
+    features.garage = value
+    adminUpdate(source, code, { garage = garage, features = features }, 'house.admin.garage.enable', { enabled = value }, 'Garagem atualizada.')
+  end, false)
+
+  RegisterCommand(tostring(admin.garageSlots or 'mhouse_garage_slots'), function(source, args)
+    local code = trim(args and args[1])
+    local slots = math.floor(tonumber(args and args[2]) or 0)
+    local maxSlots = tonumber((MZHousesConfig.Garage or {}).maxSlots) or 20
+    if code == '' or slots <= 0 then
+      return reply(source, 'Uso: /mhouse_garage_slots codigo slots')
+    end
+    if slots > maxSlots then slots = maxSlots end
+    local property = MZHousesService.getAdminPropertyInfo(code)
+    local garage = type(property) == 'table' and type(property.garage) == 'table' and property.garage or {}
+    garage.enabled = garage.enabled ~= false
+    garage.slots = slots
+    garage.mode = garage.mode or 'private'
+    adminUpdate(source, code, { garage = garage }, 'house.admin.garage.slots.set', { slots = slots }, 'Slots da garagem atualizados.')
+  end, false)
+
+  RegisterCommand(tostring(admin.garageMode or 'mhouse_garage_mode'), function(source, args)
+    local code = trim(args and args[1])
+    local mode = trim(args and args[2])
+    if code == '' or (mode ~= 'private' and mode ~= 'shared') then
+      return reply(source, 'Uso: /mhouse_garage_mode codigo private|shared')
+    end
+    local property = MZHousesService.getAdminPropertyInfo(code)
+    local garage = type(property) == 'table' and type(property.garage) == 'table' and property.garage or {}
+    garage.enabled = garage.enabled ~= false
+    garage.mode = mode
+    adminUpdate(source, code, { garage = garage }, 'house.admin.garage.mode.set', { mode = mode }, 'Modo da garagem atualizado.')
+  end, false)
+
+  RegisterCommand(tostring(admin.info or 'mhouse_info'), function(source, args)
+    if not isHouseAdmin(source) then
+      return reply(source, 'Voce nao tem permissao para usar este comando.')
+    end
+
+    local code = trim(args and args[1])
+    if code == '' then
+      return reply(source, 'Uso: /mhouse_info codigo')
+    end
+
+    local ok, access = MZHousesService.listHouseKeys(code, source, true)
+    if not ok then
+      return reply(source, ('Erro: %s'):format(tostring(access)))
+    end
+
+    local property = MZHousesService.getAdminPropertyInfo(code) or {}
+    local garage = type(property.garage) == 'table' and property.garage or {}
+    local entrance = type(property.entrance) == 'table' and property.entrance or {}
+    reply(source, ('Info casa=%s label=%s enabled=%s status=%s category=%s subtype=%s ownerType=%s orgCode=%s shell=%s visibility=%s public=%s canBeListed=%s reason=%s owner=%s garage=%s/%s/%s coords=%.2f,%.2f,%.2f'):format(
+      code,
+      tostring(property.label or 'nil'),
+      tostring(property.enabled == true),
+      tostring(property.status or 'nil'),
+      tostring(property.category or 'nil'),
+      tostring(property.subtype or 'nil'),
+      tostring(property.ownerType or 'nil'),
+      tostring(access.orgCode or 'nil'),
+      tostring(property.shell or 'nil'),
+      tostring(property.visibility or 'auto'),
+      tostring(property.public == true),
+      tostring(property.canBeListed == true),
+      tostring(property.canBeListedReason or 'nil'),
+      access.owner and 'sim' or 'nao',
+      tostring(garage.enabled == true),
+      tostring(garage.mode or 'nil'),
+      tostring(garage.slots or 'nil'),
+      tonumber(entrance.x) or 0.0,
+      tonumber(entrance.y) or 0.0,
+      tonumber(entrance.z) or 0.0
+    ))
+  end, false)
+
   if MZHousesConfig.Debug == true then
     RegisterCommand('mhouse_testgarage', function(source, args)
       runHouseGarageExportTest(source, args and args[1])
@@ -597,6 +839,71 @@ RegisterNetEvent('mz_houses:server:runCommand', function(action, args)
   end
 
   TriggerClientEvent('mz_houses:client:runCommand', src, trim(action), type(args) == 'table' and args or {})
+end)
+
+RegisterNetEvent('mz_houses:server:createAdminProperty', function(payload)
+  local src = source
+  if not isHouseAdmin(src) then
+    return reply(src, 'Voce nao tem permissao para usar este comando.')
+  end
+
+  payload = type(payload) == 'table' and payload or {}
+  payload.entrance = coordsFromPayload(payload.entrance or payload, true)
+
+  local ok, result = MZHousesService.createAdminProperty(src, payload)
+  if not ok then
+    return reply(src, ('Erro: %s'):format(tostring(result)))
+  end
+
+  refreshVisibilityTargets('house_admin_create')
+  reply(src, ('Imovel criado: %s - %s'):format(result.houseCode, result.label))
+end)
+
+RegisterNetEvent('mz_houses:server:setAdminEntrance', function(payload)
+  local src = source
+  local code = trim(type(payload) == 'table' and payload.code or '')
+  local entrance = coordsFromPayload(type(payload) == 'table' and payload.entrance or nil, true)
+  if code == '' or not entrance then
+    return reply(src, 'Uso: /mhouse_setentrance codigo')
+  end
+
+  adminUpdate(src, code, { entrance = entrance }, 'house.admin.entrance.set', {
+    entrance = vector4Payload(entrance)
+  }, 'Entrada atualizada.')
+end)
+
+RegisterNetEvent('mz_houses:server:setAdminGaragePoint', function(payload)
+  local src = source
+  payload = type(payload) == 'table' and payload or {}
+  local code = trim(payload.code)
+  local kind = trim(payload.kind)
+  if code == '' or (kind ~= 'entry' and kind ~= 'spawn' and kind ~= 'store') then
+    return reply(src, 'Uso: /mhouse_garage_entry_here|spawn_here|store_here codigo')
+  end
+
+  local property = MZHousesService.getAdminPropertyInfo(code)
+  local garage = type(property) == 'table' and type(property.garage) == 'table' and property.garage or {}
+  garage.enabled = garage.enabled ~= false
+  garage.label = garage.label or 'Garagem da Casa'
+  garage.mode = garage.mode or 'private'
+  garage.slots = tonumber(garage.slots) or tonumber((MZHousesConfig.Garage or {}).defaultSlots) or 2
+  garage.storeRadius = tonumber(garage.storeRadius) or tonumber((MZHousesConfig.Garage or {}).storeRadius) or 4.0
+
+  if kind == 'spawn' then
+    local spawn = coordsFromPayload(payload.point, true)
+    if not spawn then return reply(src, 'Coordenada invalida.') end
+    garage.spawn = spawn
+  else
+    local point = coordsFromPayload(payload.point, false)
+    if not point then return reply(src, 'Coordenada invalida.') end
+    garage[kind] = point
+  end
+
+  local features = type(property) == 'table' and type(property.features) == 'table' and property.features or {}
+  features.garage = true
+  adminUpdate(src, code, { garage = garage, features = features }, ('house.admin.garage.%s.set'):format(kind), {
+    kind = kind
+  }, ('Ponto da garagem atualizado: %s'):format(kind))
 end)
 
 exports('CanEnterHouse', function(source, houseCode)

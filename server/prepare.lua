@@ -55,6 +55,9 @@ local statements = {
     entrance_json LONGTEXT NULL,
     garage_json LONGTEXT NULL,
     features_json LONGTEXT NULL,
+    visibility VARCHAR(30) NOT NULL DEFAULT 'auto',
+    listing_json LONGTEXT NULL,
+    realestate_json LONGTEXT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'active',
     enabled TINYINT(1) NOT NULL DEFAULT 1,
     public TINYINT(1) NOT NULL DEFAULT 0,
@@ -145,6 +148,9 @@ local function ensureHousePropertyColumns()
   ensureColumn('mz_houses', 'org_code', '`org_code` VARCHAR(80) NULL')
   ensureColumn('mz_houses', 'business_code', '`business_code` VARCHAR(80) NULL')
   ensureColumn('mz_houses', 'features_json', '`features_json` LONGTEXT NULL')
+  ensureColumn('mz_houses', 'visibility', "`visibility` VARCHAR(30) NOT NULL DEFAULT 'auto'")
+  ensureColumn('mz_houses', 'listing_json', '`listing_json` LONGTEXT NULL')
+  ensureColumn('mz_houses', 'realestate_json', '`realestate_json` LONGTEXT NULL')
 
   ensureIndex('mz_houses', 'idx_mz_houses_category', '(`category`)')
   ensureIndex('mz_houses', 'idx_mz_houses_owner_type', '(`owner_type`)')
