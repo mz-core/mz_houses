@@ -9,6 +9,45 @@ local function getHouseEntrance(house)
   return MZHouses.AsVector3(house and house.entrance)
 end
 
+local function visibilityEnabled()
+  return (MZHousesConfig.Visibility or {}).enabled == true
+end
+
+local function getHouseCode(key, house)
+  if type(key) == 'number' then
+    return tostring(house and house.code or '')
+  end
+
+  return tostring(key or '')
+end
+
+local function shouldShowEntry(house)
+  if visibilityEnabled() then
+    return type(house) == 'table' and house.entryVisible == true
+  end
+
+  return true
+end
+
+local function getListingCoords(house)
+  local listing = type(house) == 'table' and type(house.listing) == 'table' and house.listing or nil
+  local sign = listing and type(listing.sign) == 'table' and listing.sign or nil
+
+  if sign and sign.enabled == true then
+    local coords = MZHouses.AsVector3(sign.coords)
+    if coords then
+      return coords
+    end
+  end
+
+  return getHouseEntrance(house)
+end
+
+local function shouldShowListing(house)
+  -- Listing e apenas metadata nesta fase. Placa/marker fica para mz_realestate.
+  return false
+end
+
 local function removeInteractPoints()
   if GetResourceState('mz_interact') ~= 'started' then
     RegisteredInteractPoints = {}
@@ -27,20 +66,24 @@ end
 local function registerMzInteractPoints()
   local interaction = MZHousesConfig.Interaction or {}
   if interaction.useMzInteract ~= true then
+    UsingMzInteract = false
     return false
   end
 
   if GetResourceState('mz_interact') ~= 'started' then
+    UsingMzInteract = false
     return false
   end
 
   removeInteractPoints()
 
   local added = 0
-  for code, house in pairs(MZHousesConfig.Houses or {}) do
-    if type(house) == 'table' and house.enabled ~= false then
+  local houses = MZHouses.GetVisibleHouses and MZHouses.GetVisibleHouses(true) or (MZHousesConfig.Houses or {})
+  for key, house in pairs(houses or {}) do
+    local code = getHouseCode(key, house)
+    if code ~= '' and type(house) == 'table' and house.enabled ~= false then
       local coords = getHouseEntrance(house)
-      if coords then
+      if coords and shouldShowEntry(house) then
         local pointId = ('mz_houses:%s:entrance'):format(code)
         local ok, result = pcall(function()
           return exports['mz_interact']:AddPoint({
@@ -77,6 +120,50 @@ local function registerMzInteractPoints()
             house = code,
             result = result
           })
+        end
+      end
+
+      if shouldShowListing(house) then
+        local listingCoords = getListingCoords(house)
+        local listing = house.listing or {}
+        if listingCoords then
+          local pointId = ('mz_houses:%s:listing'):format(code)
+          local ok, result = pcall(function()
+            return exports['mz_interact']:AddPoint({
+              id = pointId,
+              coords = listingCoords,
+              drawDistance = tonumber(interaction.markerDistance) or 15.0,
+              interactDistance = tonumber(interaction.distance) or 2.0,
+              key = tonumber(interaction.key) or 38,
+              text = {
+                enabled = true,
+                label = ('[E] %s'):format(tostring(listing.label or 'Imovel a venda'))
+              },
+              marker = {
+                enabled = true,
+                type = 2,
+                size = vector3(0.35, 0.35, 0.35),
+                color = { r = 255, g = 210, b = 80, a = 180 },
+                bobUpAndDown = false,
+                rotate = true
+              },
+              event = {
+                type = 'client',
+                name = 'mz_houses:client:listingInfo',
+                args = { code }
+              }
+            })
+          end)
+
+          if ok and result == true then
+            RegisteredInteractPoints[#RegisteredInteractPoints + 1] = pointId
+            added = added + 1
+          elseif MZHouses and MZHouses.Debug then
+            MZHouses.Debug('mz_interact_listing_add_failed', {
+              house = code,
+              result = result
+            })
+          end
         end
       end
     end
@@ -149,10 +236,12 @@ local function runFallbackMarkerLoop()
         local interactDistance = tonumber(interaction.distance) or 2.0
         local key = tonumber(interaction.key) or 38
 
-        for code, house in pairs(MZHousesConfig.Houses or {}) do
-          if type(house) == 'table' and house.enabled ~= false then
+        local houses = MZHouses.GetVisibleHouses and MZHouses.GetVisibleHouses(false) or (MZHousesConfig.Houses or {})
+        for houseKey, house in pairs(houses or {}) do
+          local code = getHouseCode(houseKey, house)
+          if code ~= '' and type(house) == 'table' and house.enabled ~= false then
             local coords = getHouseEntrance(house)
-            if coords then
+            if coords and shouldShowEntry(house) then
               local distance = #(playerCoords - coords)
               if distance <= markerDistance then
                 waitMs = 0
@@ -175,6 +264,34 @@ local function runFallbackMarkerLoop()
                 end
               end
             end
+
+            if shouldShowListing(house) then
+              local listingCoords = getListingCoords(house)
+              local listing = house.listing or {}
+              if listingCoords then
+                local distance = #(playerCoords - listingCoords)
+                if distance <= markerDistance then
+                  waitMs = 0
+                  drawHouseMarker(listingCoords)
+
+                  if distance <= interactDistance then
+                    local textConfig = interaction.text or {}
+                    if textConfig.enabled ~= false then
+                      drawText3d(
+                        vector3(listingCoords.x, listingCoords.y, listingCoords.z + (tonumber(textConfig.offsetZ) or 0.45)),
+                        ('[E] %s'):format(tostring(listing.label or 'Imovel a venda')),
+                        tonumber(textConfig.scale) or 0.32
+                      )
+                    end
+
+                    if IsControlJustReleased(0, key) then
+                      TriggerEvent('mz_houses:client:listingInfo', code)
+                      Wait(500)
+                    end
+                  end
+                end
+              end
+            end
           end
         end
       end
@@ -184,8 +301,21 @@ local function runFallbackMarkerLoop()
   end)
 end
 
+RegisterNetEvent('mz_houses:client:visibilityUpdated', function(reason)
+  Wait(50)
+  local ok = registerMzInteractPoints()
+  MZHouses.Debug('visibility_points_refreshed', {
+    reason = reason,
+    usingMzInteract = ok == true,
+    points = #RegisteredInteractPoints
+  })
+end)
+
 CreateThread(function()
   Wait(700)
+  if MZHouses and MZHouses.RefreshVisibleHouses then
+    MZHouses.RefreshVisibleHouses(true)
+  end
   local ok = registerMzInteractPoints()
   if ok then
     MZHouses.Debug('using_mz_interact', {

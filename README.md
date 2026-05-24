@@ -17,6 +17,7 @@ Este resource usa `mz_interiors` para entrar e sair de shells. Ele possui contro
 - Criar ponto interno de guarda-roupa por casa.
 - Validar acesso ao guarda-roupa no server antes de abrir o `mz_clothing`.
 - Criar ponto externo de garagem por casa.
+- Filtrar visibilidade de pontos externos por player antes de desenhar marker/interact.
 - Validar acesso da casa no server antes de abrir/guardar pela garagem.
 - Delegar retirada/guarda de veiculos ao `mz_garagem`.
 - Manter cache runtime para performance.
@@ -29,6 +30,7 @@ No `server.cfg`, garanta:
 
 ```txt
 ensure mz_core
+ensure mz_org
 ensure mz_inventory
 ensure mz_vehicles
 ensure mz_garagem
@@ -48,6 +50,41 @@ Arquivo:
 mz_houses/shared/config.lua
 ```
 
+### Modelo estrutural de propriedade
+
+O `mz_houses` continua sendo o resource de casas/propriedades. Ele nao deve ser renomeado para `mz_properties` nesta fase.
+
+Toda casa pode declarar metadados estruturais para preparar fases futuras:
+
+```lua
+category = 'residential',
+subtype = 'house',
+ownerType = 'player',
+orgCode = nil,
+businessCode = nil,
+features = {
+  stash = true,
+  wardrobe = true,
+  garage = true,
+  furniture = false
+}
+```
+
+Defaults globais ficam em `MZHousesConfig.PropertyDefaults`. Se uma casa antiga nao declarar esses campos, o server aplica defaults retrocompativeis:
+
+- `category`: `residential`, `org`, `business`, `public`.
+- `subtype`: `house`, `apartment`, `org_base`, `gang_base`, `business`, `motel`, `hotel`.
+- `ownerType`: `player`, `org`, `business`, `none`.
+- `orgCode`: reservado para fase futura de org/base.
+- `businessCode`: reservado para fase futura de negocios/comercios.
+- `features`: flags estruturais para `stash`, `wardrobe`, `garage`, `furniture`.
+
+Comportamento atual:
+
+- `ownerType = 'player'` / `category = 'residential'`: usa public, owner, chaves ou admin.
+- `ownerType = 'org'` / `category = 'org'`: usa membership real da org via `mz_core`/`mz_org` ou admin.
+- `business` e `none` continuam reservados para fases futuras.
+
 Exemplo:
 
 ```lua
@@ -59,6 +96,17 @@ MZHousesConfig.Houses = {
     entrance = vector4(0.0, 0.0, 72.0, 0.0),
     status = 'debug',
     enabled = true,
+    category = 'residential',
+    subtype = 'house',
+    ownerType = 'player',
+    orgCode = nil,
+    businessCode = nil,
+    features = {
+      stash = true,
+      wardrobe = true,
+      garage = true,
+      furniture = false
+    },
     access = {
       public = true,
       owner = nil,
@@ -123,22 +171,183 @@ MZHousesConfig.Database = {
 }
 ```
 
+### Visibilidade de markers/interacts
+
+A visibilidade do ponto no mundo e separada da permissao de entrada. O client pede ao server uma lista filtrada por player em `mz_houses:server:listVisibleHouses`; mesmo assim, entrada, bau, guarda-roupa e garagem continuam validando no server quando usados.
+
+Config global:
+
+```lua
+MZHousesConfig.Visibility = {
+  enabled = true,
+  adminSeesAll = true,
+  showPublicResidential = true,
+  showOwnedResidentialToEveryone = false,
+  showUnlistedAvailableResidential = false,
+  showOrgPropertiesToNonMembers = false,
+  showBusinessPropertiesToPublic = true,
+  cacheSeconds = 5
+}
+```
+
+Regras principais:
+
+- Admin `group.mz_owner` ve tudo quando `adminSeesAll = true`.
+- `visibility = 'hidden'` esconde de todos, exceto admin.
+- `visibility = 'public'` mostra para todos, mas nao libera entrada sozinho.
+- `visibility = 'restricted'` mostra apenas para quem tem relacao visual: owner/chave em residencial, membro em org/base.
+- `visibility = 'auto'` aplica a regra do tipo da propriedade.
+- Org/gang/fac/base aparece so para membro/admin por padrao.
+- Casa residencial comprada/privada aparece so para owner/chave/admin por padrao.
+- Casa sem dono e sem `listing.enabled` nao aparece automaticamente.
+- `public = true` significa entrada publica, nao venda.
+
+Estrutura preparada para placa/listagem futura:
+
+```lua
+visibility = 'auto',
+listing = {
+  enabled = false,
+  type = 'sale',
+  price = nil,
+  label = 'Imovel a venda',
+  sign = {
+    enabled = false,
+    coords = nil,
+    heading = 0.0
+  }
+}
+```
+
+`listing.enabled = true` fica como metadata para consulta futura, mas nao implementa placa ativa, marker de venda, compra, venda, aluguel ou corretor.
+
+### Metadata passiva para imobiliaria futura
+
+O `mz_houses` nao implementa imobiliaria. Para um futuro resource separado, como `mz_realestate` ou `mz_imobiliaria`, cada propriedade pode declarar metadata passiva:
+
+```lua
+realestate = {
+  enabled = false,
+  canBeListed = true,
+  defaultPrice = nil,
+  listingType = 'sale'
+}
+```
+
+Essa metadata nao cria placa, nao cria marker, nao vende, nao compra e nao transfere dinheiro. Ela apenas permite que um resource futuro consulte se o imovel pode ser anunciado.
+
+Regra atual de `CanPropertyBeListed`:
+
+- `category = 'residential'` e `ownerType = 'player'` pode ser anunciado.
+- `category = 'org'` ou `ownerType = 'org'` nao pode ser anunciado por padrao.
+- `enabled = false`, `status = 'archived'`, `status = 'inactive'`, `status = 'disabled'` ou `visibility = 'hidden'` bloqueiam anuncio.
+- `realestate.canBeListed = false` bloqueia anuncio.
+- `listing.enabled = true` e apenas metadata; nao libera entrada nem compra.
+
 Tabelas criadas automaticamente:
 
 - `mz_houses`
 - `mz_house_keys`
 - `mz_house_logs`
 
+Campos estruturais atuais em `mz_houses`:
+
+- `category`
+- `subtype`
+- `owner_type`
+- `org_code`
+- `business_code`
+- `features_json`
+
 No start, se `syncConfigOnStart = true`, as casas de `MZHousesConfig.Houses` sao sincronizadas para `mz_houses`.
 
 Regras de sync:
 
 - Se a casa nao existe no banco, ela e inserida.
-- Se ja existe, atualiza campos nao sensiveis: label, type, shell, entrance, garage, enabled e status.
+- Se ja existe, atualiza campos nao sensiveis: label, category, subtype, owner_type, org_code, business_code, type, shell, entrance, garage, features_json, enabled e status.
 - Owner nao e sobrescrito pelo config depois que a casa existe.
 - `public` so e atualizado pelo config quando `syncPublicFromConfig = true`.
+- `features_json` e atualizado pelo config/defaults, mas nesta fase nao muda sozinho os fluxos ja funcionais.
+
+Com `syncPublicFromConfig = false`, se o config tiver `access.public = true`, mas o banco ja tiver `public = false`, o banco vence no runtime. Isso pode fazer uma casa nao aparecer/entrar para player comum ate que o estado persistido seja ajustado por fluxo admin/futuro painel.
 
 Se `Database.enabled = false`, o resource volta ao modo config/runtime. Nesse modo owner/chaves mudados por comando nao persistem apos restart.
+
+### Logs
+
+O `mz_houses` usa `mz_logs` como destino principal de auditoria quando possivel. A tabela `mz_house_logs` continua existindo como legado/fallback opcional; ela nao e apagada nem migrada automaticamente.
+
+Config:
+
+```lua
+MZHousesConfig.Logging = {
+  enabled = true,
+  mode = 'central', -- central | local | both | none
+  localFallback = true,
+  debug = false
+}
+```
+
+Modos:
+
+- `central`: grava em `mz_logs` com `scope = 'house'`; se falhar e `localFallback = true`, grava em `mz_house_logs`.
+- `local`: grava somente em `mz_house_logs`.
+- `both`: grava nas duas tabelas temporariamente para comparacao/migracao.
+- `none`: desliga logs do resource.
+
+Actions padronizadas no log central:
+
+```txt
+house.open
+house.open.failed
+house.owner.set
+house.owner.clear
+house.key.give
+house.key.remove
+house.stash.open
+house.stash.open.failed
+house.wardrobe.open
+house.wardrobe.open.failed
+house.garage.open
+house.garage.open.failed
+house.access.denied
+house.visibility.refresh
+house.realestate.can_list
+```
+
+Formato central:
+
+- `scope = 'house'`
+- `target = 'house:<codigo>'`
+- `data_json.actor`, `data_json.target`, `data_json.context` e `data_json.meta` seguem o formato de `MZLogService.createDetailed`.
+
+Consultas uteis:
+
+```sql
+SELECT id, scope, action, actor, target, LEFT(data_json, 256), created_at
+FROM mz_logs
+WHERE scope = 'house'
+ORDER BY id DESC
+LIMIT 100;
+```
+
+```sql
+SELECT *
+FROM mz_logs
+WHERE scope = 'house'
+  AND target = 'house:casa_teste_01'
+ORDER BY id DESC
+LIMIT 100;
+```
+
+Se estiver usando `mode = 'both'` ou fallback local:
+
+```sql
+SELECT id, house_code, action, actor_citizenid, target_citizenid, LEFT(meta_json, 256), created_at
+FROM mz_house_logs
+ORDER BY id DESC
+LIMIT 100;
+```
 
 ### Acesso
 
@@ -166,6 +375,68 @@ exports['mz_core']:GetPlayer(source)
 ```
 
 e compara o `player.citizenid` com owner/chaves.
+
+### Acesso de propriedades org/fac/gang
+
+Uma propriedade de org usa `orgCode` como fonte de autorizacao:
+
+```lua
+base_ballas = {
+  label = 'Base Ballas',
+  category = 'org',
+  subtype = 'gang_base',
+  ownerType = 'org',
+  orgCode = 'ballas',
+  type = 'shell',
+  shell = 'container',
+  entrance = vector4(x, y, z, h),
+  status = 'active',
+  enabled = true,
+  access = {
+    public = false,
+    enter = {
+      requireMember = true,
+      requiredCapability = nil,
+      requiredGradeLevel = nil
+    },
+    features = {
+      stash = {
+        requiredCapability = 'storage.open',
+        requiredGradeLevel = nil
+      },
+      wardrobe = {
+        requiredCapability = nil,
+        requiredGradeLevel = nil
+      },
+      garage = {
+        requiredCapability = 'vehicle.basic',
+        requiredGradeLevel = 2
+      }
+    }
+  },
+  features = {
+    stash = true,
+    wardrobe = true,
+    garage = true,
+    furniture = false
+  }
+}
+```
+
+Regra atual:
+
+- Admin `group.mz_owner` sempre acessa.
+- Se `access.public = true`, qualquer player acessa.
+- Com `access.public = false`, membro ativo da org `orgCode` acessa.
+- `access.enter` permite exigir capability/grade para entrar; se nao existir, qualquer membro ativo entra.
+- `access.features.stash`, `access.features.wardrobe` e `access.features.garage` permitem regras por recurso.
+- Se `requiredCapability` for configurado, o server exige `exports['mz_core']:CanOrg(source, orgCode, capability)`.
+- Se `requiredGradeLevel` for configurado, o server exige `exports['mz_core']:HasGradeOrAbove(source, orgCode, level)`.
+- Se capability e grade forem configurados juntos, os dois sao obrigatorios.
+- Se a regra do recurso nao existir, basta o acesso geral a propriedade.
+- Chaves (`mz_house_keys`) continuam sendo para casas residenciais/player; org base nao usa chave residencial como fallback.
+
+O client continua enviando apenas `houseCode`. `orgCode`, capability e grade sao lidos no server a partir da propriedade/config.
 
 Use `/mhouse_here` no ponto desejado para imprimir uma linha pronta:
 
@@ -347,6 +618,18 @@ Com banco ativo, estes comandos persistem em `mz_houses`/`mz_house_keys` e atual
 /mhouse_reload
 ```
 
+`/mhouse_access casa_teste_01` mostra tambem o modelo estrutural:
+
+```txt
+Casa=casa_teste_01 accessMode=player category=residential subtype=house ownerType=player orgCode=nil businessCode=nil features=stash,wardrobe,garage enterAccess=residential featuresAccess=residential public=true owner=nil key_count=0 currentAccess=true reason=admin canBeListed=true listReason=listable database=true
+```
+
+Para org/base, o resumo de regras aparece compacto:
+
+```txt
+featuresAccess=stash:storage.open wardrobe:allowed garage:vehicle.basic+grade>=2
+```
+
 Por padrao eles exigem:
 
 ```lua
@@ -401,15 +684,44 @@ exports['mz_houses']:OpenHouseGarage(houseCode, action)
 
 ```lua
 exports['mz_houses']:CanEnterHouse(source, houseCode)
-exports['mz_houses']:SetHouseOwner(houseCode, citizenid)
-exports['mz_houses']:ClearHouseOwner(houseCode)
-exports['mz_houses']:GiveHouseKey(houseCode, citizenid)
-exports['mz_houses']:RemoveHouseKey(houseCode, citizenid)
+exports['mz_houses']:GetPropertyByCode(code)
+exports['mz_houses']:GetPublicPropertyInfo(code)
+exports['mz_houses']:ListProperties(filters)
+exports['mz_houses']:CanPlayerAccessProperty(source, code)
+exports['mz_houses']:CanPlayerManageProperty(source, code)
+exports['mz_houses']:CanPropertyBeListed(code)
+exports['mz_houses']:SetPropertyOwner(code, citizenid, actorSource, reason, meta)
+exports['mz_houses']:ClearPropertyOwner(code, actorSource, reason, meta)
+exports['mz_houses']:GivePropertyKey(code, citizenid, actorSource, reason, meta)
+exports['mz_houses']:RemovePropertyKey(code, citizenid, actorSource, reason, meta)
+exports['mz_houses']:SetHouseOwner(houseCode, citizenid, actorSource, reason, meta)
+exports['mz_houses']:ClearHouseOwner(houseCode, actorSource, reason, meta)
+exports['mz_houses']:GiveHouseKey(houseCode, citizenid, actorSource, reason, meta)
+exports['mz_houses']:RemoveHouseKey(houseCode, citizenid, actorSource, reason, meta)
 exports['mz_houses']:GetHouseAccess(houseCode)
 exports['mz_houses']:OpenHouseStash(source, houseCode)
 exports['mz_houses']:OpenHouseWardrobe(source, houseCode)
 exports['mz_houses']:OpenHouseGarage(source, houseCode, action)
 ```
+
+Os exports de consulta retornam versoes sanitizadas: `code`, `label`, `category`, `subtype`, `ownerType`, `type`, `shell`, `entrance`, `features`, `garage` publico, `visibility`, `status`, `public`, `listing` metadata, `realestate` metadata e `canBeListed`.
+
+Eles nao retornam `owner_citizenid`, chaves, capabilities, grade minima, tokens de stash/garagem ou dados de sessao.
+
+Os exports de alteracao de owner/chaves exigem `actorSource` admin com `group.mz_owner`. Chamadas sem ator retornam `actor_required`; ator sem permissao retorna `admin_required`. Para um futuro `mz_realestate`, o contrato deve evoluir com modo `trustedResource`/token interno, sem SQL direto.
+
+## Integracao futura: mz_realestate
+
+O `mz_houses` permanece dono da propriedade, entrada, owner/chaves, acesso e validacao server-side. O resource futuro `mz_realestate` deve ser dono de anuncios, placas, visitas, propostas, pagamentos, comissao e painel.
+
+Exemplo seguro:
+
+```lua
+local property = exports['mz_houses']:GetPublicPropertyInfo('casa_teste_01')
+local canList, reason = exports['mz_houses']:CanPropertyBeListed('casa_teste_01')
+```
+
+O futuro `mz_realestate` nao deve escrever direto nas tabelas do `mz_houses`, nao deve setar owner por SQL, nao deve criar entrada/bau/garagem e nao deve ignorar `CanEnterHouse`/`CanPlayerManageProperty`.
 
 ## Interacao
 
@@ -417,7 +729,16 @@ O resource tenta registrar entradas usando `mz_interact`:
 
 - `exports['mz_interact']:AddPoint(...)`
 
-Se `mz_interact` nao estiver ativo ou falhar, usa fallback marker/texto com tecla `E`.
+Com `MZHousesConfig.Visibility.enabled = true`, os pontos externos sao registrados a partir da lista server-side visivel para o player. Se `mz_interact` nao estiver ativo ou falhar, usa fallback marker/texto com tecla `E` usando a mesma lista visivel.
+
+Refresh recomendado depois de mudar owner/chaves/config:
+
+```txt
+restart mz_interact
+restart mz_houses
+```
+
+O comando `/mhouse_reload` tambem dispara refresh client-side de visibilidade.
 
 ## Limitacoes atuais
 
@@ -425,7 +746,11 @@ Se `mz_interact` nao estiver ativo ou falhar, usa fallback marker/texto com tecl
 - Bau/stash funcional via `house_stash`.
 - Guarda-roupa funcional via `mz_clothing`.
 - Garagem de casa funcional via `mz_garagem`.
+- Modelo estrutural de `category/subtype/ownerType/features` ja existe.
+- `org_base`/`gang_base` tem acesso por membership real da org e regras finas por recurso.
+- Business/comercio e apartment especial ainda nao tem regra funcional propria.
 - Sem imobiliaria.
+- Sem furniture/mobilia dinamica.
 - Sem NUI.
 
 ## Teste rapido
@@ -541,4 +866,4 @@ Cole as coordenadas em `garage` da casa, deixe `enabled = true`, reinicie `mz_ho
 
 ## Proximo passo recomendado
 
-Seguir para venda/transferencia ou modelo de categorias (`residential`, `org`, `business`). Imobiliaria pode vir depois, sem misturar com `mz_interiors`.
+Validar em jogo o modelo estrutural com `/mhouse_access casa_teste_01` e, depois, seguir para uma fase especifica: org_base com `mz_org`, negocios/comercios ou venda/transferencia. Imobiliaria pode vir depois, sem misturar com `mz_interiors`.

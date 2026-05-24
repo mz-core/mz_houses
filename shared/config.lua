@@ -39,6 +39,58 @@ MZHousesConfig.Database = {
   configCanSetOwnerOnFirstInsert = true
 }
 
+MZHousesConfig.Logging = {
+  enabled = true,
+
+  -- central = mz_logs; local = mz_house_logs; both = ambos; none = desliga.
+  mode = 'central',
+
+  -- Em modo central, grava em mz_house_logs se mz_logs falhar.
+  localFallback = true,
+
+  debug = false
+}
+
+MZHousesConfig.Visibility = {
+  enabled = true,
+
+  -- Admin sempre ve tudo para debug.
+  adminSeesAll = true,
+
+  -- public=true significa entrada publica, nao venda.
+  showPublicResidential = true,
+
+  -- Casa residencial privada/comprada aparece so para owner/key/admin.
+  showOwnedResidentialToEveryone = false,
+
+  -- Casa sem dono e sem placa/listing nao aparece para todos.
+  showUnlistedAvailableResidential = false,
+
+  -- Org/gang/fac aparece so para membro/admin por padrao.
+  showOrgPropertiesToNonMembers = false,
+
+  -- Reservado para business/comercio futuro.
+  showBusinessPropertiesToPublic = true,
+
+  -- Cache curto por player.
+  cacheSeconds = 5
+}
+
+MZHousesConfig.PropertyDefaults = {
+  category = 'residential',
+  subtype = 'house',
+  ownerType = 'player',
+  orgCode = nil,
+  businessCode = nil,
+
+  features = {
+    stash = true,
+    wardrobe = true,
+    garage = false,
+    furniture = false
+  }
+}
+
 MZHousesConfig.Notify = {
   useMzNotify = true,
   useOxLib = true,
@@ -211,6 +263,36 @@ MZHousesConfig.InteriorDefaults = {
     garage = {
       enabled = false
     }
+  },
+    container = {
+    label = 'Container / Base Gang',
+
+    exit = {
+      enabled = true,
+      coords = vector3(0.080, -5.730, 1.240),
+      heading = 359.32,
+      relative = true
+    },
+
+    stash = {
+      enabled = true,
+      label = 'Bau da Base',
+      coords = vector3(0.0, 0.0, 1.240), -- ajuste com /mhouse_stash_here
+      slots = 80,
+      weight = 200000,
+      relative = true
+    },
+
+    wardrobe = {
+      enabled = true,
+      label = 'Guarda-roupa',
+      coords = vector3(0.080, 5.730, 1.240), -- ajuste com /mhouse_wardrobe_here
+      relative = true
+    },
+
+    garage = {
+      enabled = false
+    }
   }
 }
 
@@ -219,31 +301,211 @@ MZHousesConfig.InteriorDefaults = {
 -- Ajuste as coords com os comandos *_here.
 MZHousesConfig.Houses = {
   casa_teste_01 = {
-    label = 'Casa Teste 01',
-    type = 'shell',
-    shell = 'shell_test',
-    entrance = vector4(0.0, 0.0, 72.0, 0.0),
-    status = 'debug',
-    enabled = true,
+  label = 'Casa Teste 01',
+  type = 'shell',
+  shell = 'shell_test',
 
-    access = {
-      -- Publico por padrao para manter o MVP atual funcionando.
-      -- Troque para false para testar dono/chaves.
-      public = true,
-      owner = nil,
-      keys = {}
-    },
+  -- Entrada física da casa no mundo
+  entrance = vector4(1265.75, -648.62, 67.92, 296.0),
 
-    garage = {
+  status = 'debug',
+  enabled = true,
+  visibility = 'auto',
+  category = 'residential',
+  subtype = 'house',
+  ownerType = 'player',
+  orgCode = nil,
+  businessCode = nil,
+
+  features = {
+    stash = true,
+    wardrobe = true,
+    garage = true,
+    furniture = false
+  },
+
+  access = {
+    public = true,
+    owner = nil,
+    keys = {}
+  },
+
+  listing = {
+    enabled = false,
+    type = 'sale',
+    price = nil,
+    label = 'Imovel a venda',
+    description = nil,
+    sign = {
+      enabled = false,
+      coords = nil,
+      heading = 0.0
+    }
+  },
+
+  realestate = {
+    enabled = false,
+    canBeListed = true,
+    defaultPrice = nil,
+    listingType = 'sale'
+  },
+
+  garage = {
     enabled = true,
     label = 'Garagem da Casa',
     mode = 'private',
     slots = 2,
-    entry = vector3(-4.708, 2.710, 71.122),
-    spawn = vector4(-4.708, 2.710, 71.122, 151.635),
-    store = vector3(-4.708, 2.710, 71.122),
+
+    -- Ponto para abrir a garagem
+    entry = vector3(1270.20, -652.90, 67.85),
+
+    -- Onde o veículo nasce
+    spawn = vector4(1274.15, -656.25, 67.55, 290.0),
+
+    -- Onde guarda o veículo
+    store = vector3(1274.15, -656.25, 67.55),
+
     storeRadius = 4.0,
     vehicleTypes = { 'car', 'bike' }
   }
+},
+base_ballas = {
+  label = 'Base Ballas',
+  category = 'org',
+  subtype = 'gang_base',
+  ownerType = 'org',
+  orgCode = 'ballas',
+  businessCode = nil,
+
+  type = 'shell',
+  shell = 'container',
+
+  -- Entrada da base no mundo físico
+  entrance = vector4(108.87, -1941.24, 20.80, 48.0),
+
+  status = 'debug',
+  enabled = true,
+  visibility = 'auto',
+
+  access = {
+    public = false,
+
+    enter = {
+      requireMember = true,
+      requiredCapability = nil,
+      requiredGradeLevel = nil
+    },
+
+    features = {
+      stash = {
+        requiredCapability = 'storage.open',
+        requiredGradeLevel = nil
+      },
+
+      wardrobe = {
+        requiredCapability = nil,
+        requiredGradeLevel = nil
+      },
+
+      garage = {
+        requiredCapability = 'vehicle.basic',
+        requiredGradeLevel = 2
+      }
+    }
+  },
+
+  features = {
+    stash = true,
+    wardrobe = true,
+    garage = true,
+    furniture = false
+  },
+
+  listing = {
+    enabled = false
+  },
+
+  realestate = {
+    enabled = false,
+    canBeListed = false,
+    defaultPrice = nil,
+    listingType = 'sale'
+  },
+
+  garage = {
+    enabled = true,
+    label = 'Garagem Ballas',
+    mode = 'private',
+    slots = 6,
+
+    -- Ponto para abrir a garagem
+    entry = vector3(116.35, -1949.47, 20.72),
+
+    -- Onde o veículo nasce
+    spawn = vector4(120.72, -1953.24, 20.65, 48.0),
+
+    -- Onde guarda o veículo
+    store = vector3(120.72, -1953.24, 20.65),
+
+    storeRadius = 5.0,
+    vehicleTypes = { 'car', 'bike' }
   }
+},
+
+  -- Exemplo desativado de base de org/fac/gang. Ajuste coords/shell antes de
+  -- habilitar; a regra funcional usa membership real do mz_core/mz_org.
+  -- base_ballas = {
+  --   label = 'Base Ballas',
+  --   category = 'org',
+  --   subtype = 'gang_base',
+  --   ownerType = 'org',
+  --   orgCode = 'ballas',
+  --   businessCode = nil,
+  --   type = 'shell',
+  --   shell = 'container',
+  --   entrance = vector4(0.0, 0.0, 72.0, 0.0),
+  --   status = 'debug',
+  --   enabled = false,
+  --   access = {
+  --     public = false,
+  --
+  --     enter = {
+  --       requireMember = true,
+  --       requiredCapability = nil,
+  --       requiredGradeLevel = nil
+  --     },
+  --
+  --     features = {
+  --       stash = {
+  --         requiredCapability = 'storage.open',
+  --         requiredGradeLevel = nil
+  --       },
+  --       wardrobe = {
+  --         requiredCapability = nil,
+  --         requiredGradeLevel = nil
+  --       },
+  --       garage = {
+  --         requiredCapability = 'vehicle.basic',
+  --         requiredGradeLevel = 2
+  --       }
+  --     }
+  --   },
+  --   features = {
+  --     stash = true,
+  --     wardrobe = true,
+  --     garage = true,
+  --     furniture = false
+  --   },
+  --   garage = {
+  --     enabled = false,
+  --     label = 'Garagem Ballas',
+  --     mode = 'private',
+  --     slots = 6,
+  --     entry = vector3(0.0, 0.0, 72.0),
+  --     spawn = vector4(0.0, 0.0, 72.0, 0.0),
+  --     store = vector3(0.0, 0.0, 72.0),
+  --     storeRadius = 5.0,
+  --     vehicleTypes = { 'car', 'bike' }
+  --   }
+  -- }
 }

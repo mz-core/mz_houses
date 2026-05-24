@@ -6,6 +6,12 @@ local CurrentHouse = {
   data = nil
 }
 
+local VisibleHousesCache = {
+  houses = nil,
+  expiresAt = 0,
+  cacheSeconds = 5
+}
+
 local function trim(value)
   return tostring(value or ''):gsub('^%s+', ''):gsub('%s+$', '')
 end
@@ -132,6 +138,79 @@ end
 
 function MZHouses.GetHouses()
   return MZHousesConfig.Houses or {}
+end
+
+local function visibilityEnabled()
+  return (MZHousesConfig.Visibility or {}).enabled == true
+end
+
+local function getConfiguredVisibilityCacheSeconds()
+  return tonumber((MZHousesConfig.Visibility or {}).cacheSeconds) or 5
+end
+
+local function getLocalVisibleHousesFallback()
+  return MZHousesConfig.Houses or {}
+end
+
+function MZHouses.RefreshVisibleHouses(force)
+  if not visibilityEnabled() then
+    VisibleHousesCache.houses = getLocalVisibleHousesFallback()
+    VisibleHousesCache.expiresAt = GetGameTimer() + (getConfiguredVisibilityCacheSeconds() * 1000)
+    VisibleHousesCache.cacheSeconds = getConfiguredVisibilityCacheSeconds()
+    return VisibleHousesCache.houses
+  end
+
+  local now = GetGameTimer()
+  if force ~= true and VisibleHousesCache.houses ~= nil and now < (VisibleHousesCache.expiresAt or 0) then
+    return VisibleHousesCache.houses
+  end
+
+  if not lib or not lib.callback or type(lib.callback.await) ~= 'function' then
+    if MZHousesConfig.Debug == true then
+      MZHouses.Debug('visible_houses_callback_unavailable')
+      VisibleHousesCache.houses = getLocalVisibleHousesFallback()
+    else
+      VisibleHousesCache.houses = {}
+    end
+
+    VisibleHousesCache.expiresAt = now + (getConfiguredVisibilityCacheSeconds() * 1000)
+    return VisibleHousesCache.houses
+  end
+
+  local ok, response = pcall(function()
+    return lib.callback.await('mz_houses:server:listVisibleHouses', false, {})
+  end)
+
+  if ok and type(response) == 'table' and response.ok == true and type(response.houses) == 'table' then
+    VisibleHousesCache.houses = response.houses
+    VisibleHousesCache.cacheSeconds = tonumber(response.cacheSeconds) or getConfiguredVisibilityCacheSeconds()
+    VisibleHousesCache.expiresAt = now + (VisibleHousesCache.cacheSeconds * 1000)
+
+    MZHouses.Debug('visible_houses_refreshed', {
+      count = #response.houses,
+      cacheSeconds = VisibleHousesCache.cacheSeconds
+    })
+
+    return VisibleHousesCache.houses
+  end
+
+  MZHouses.Debug('visible_houses_callback_failed', {
+    ok = ok,
+    response = response
+  })
+
+  if MZHousesConfig.Debug == true then
+    VisibleHousesCache.houses = getLocalVisibleHousesFallback()
+  else
+    VisibleHousesCache.houses = {}
+  end
+
+  VisibleHousesCache.expiresAt = now + (getConfiguredVisibilityCacheSeconds() * 1000)
+  return VisibleHousesCache.houses
+end
+
+function MZHouses.GetVisibleHouses(force)
+  return MZHouses.RefreshVisibleHouses(force == true)
 end
 
 local function getCurrentInterior()
@@ -981,9 +1060,11 @@ local function runGarageMarkerLoop()
         local vehicle = GetVehiclePedIsIn(ped, false)
         local isDriver = vehicle ~= 0 and GetPedInVehicleSeat(vehicle, -1) == ped
 
-        for code, house in pairs(MZHousesConfig.Houses or {}) do
+        local visibleHouses = MZHouses.GetVisibleHouses and MZHouses.GetVisibleHouses(false) or (MZHousesConfig.Houses or {})
+        for houseKey, house in pairs(visibleHouses or {}) do
+          local code = type(houseKey) == 'number' and trim(house and house.code) or trim(houseKey)
           local houseGarage = type(house) == 'table' and type(house.garage) == 'table' and house.garage or nil
-          if houseGarage and houseGarage.enabled == true then
+          if code ~= '' and houseGarage and houseGarage.enabled == true then
             local entry = asVector3(houseGarage.entry)
             local store = asVector3(houseGarage.store)
             local key = tonumber((MZHousesConfig.Interaction or {}).key) or 38
@@ -1179,11 +1260,31 @@ RegisterNetEvent('mz_houses:client:commandDenied', function(reason)
   MZHouses.Notify(('Comando negado: %s'):format(tostring(reason or 'sem_permissao')), 'error')
 end)
 
+RegisterNetEvent('mz_houses:client:refreshVisibility', function(reason)
+  MZHouses.RefreshVisibleHouses(true)
+  TriggerEvent('mz_houses:client:visibilityUpdated', reason or 'refresh')
+end)
+
+RegisterNetEvent('mz_core:client:playerLoaded', function()
+  MZHouses.RefreshVisibleHouses(true)
+  TriggerEvent('mz_houses:client:visibilityUpdated', 'player_loaded')
+end)
+
 RegisterNetEvent('mz_houses:client:enterHouse', function(houseCode)
   local ok, err = MZHouses.EnterHouse(houseCode)
   if not ok then
     MZHouses.Notify(('Nao foi possivel entrar: %s'):format(tostring(err or 'erro_desconhecido')), 'error')
   end
+end)
+
+RegisterNetEvent('mz_houses:client:listingInfo', function(houseCode)
+  local code = trim(houseCode)
+  if code == '' then
+    return
+  end
+
+  -- TODO: fase futura mz_realestate / corretor: abrir menu de compra/visita.
+  MZHouses.Notify(('Imovel listado: %s. Compra/visita ainda nao implementada.'):format(code), 'inform')
 end)
 
 RegisterNetEvent('mz_houses:client:exitHouse', function()

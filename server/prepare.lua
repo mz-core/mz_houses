@@ -45,10 +45,16 @@ local statements = {
     id INT AUTO_INCREMENT PRIMARY KEY,
     code VARCHAR(80) NOT NULL,
     label VARCHAR(120) NOT NULL,
+    category VARCHAR(40) NOT NULL DEFAULT 'residential',
+    subtype VARCHAR(40) NOT NULL DEFAULT 'house',
+    owner_type VARCHAR(40) NOT NULL DEFAULT 'player',
+    org_code VARCHAR(80) NULL,
+    business_code VARCHAR(80) NULL,
     type VARCHAR(30) NOT NULL DEFAULT 'shell',
     shell VARCHAR(80) NULL,
     entrance_json LONGTEXT NULL,
     garage_json LONGTEXT NULL,
+    features_json LONGTEXT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'active',
     enabled TINYINT(1) NOT NULL DEFAULT 1,
     public TINYINT(1) NOT NULL DEFAULT 0,
@@ -57,7 +63,10 @@ local statements = {
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_mz_houses_code (code),
     KEY idx_mz_houses_status (status),
-    KEY idx_mz_houses_owner (owner_citizenid)
+    KEY idx_mz_houses_owner (owner_citizenid),
+    KEY idx_mz_houses_category (category),
+    KEY idx_mz_houses_owner_type (owner_type),
+    KEY idx_mz_houses_org_code (org_code)
   )]],
 
   [[CREATE TABLE IF NOT EXISTS mz_house_keys (
@@ -85,6 +94,63 @@ local statements = {
   )]]
 }
 
+local function queryAwait(statement, params)
+  return MySQL.query.await(statement, params or {})
+end
+
+local function hasColumn(tableName, columnName)
+  local row = MySQL.single.await([[
+    SELECT COUNT(1) AS total
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = ?
+      AND column_name = ?
+  ]], { tableName, columnName })
+
+  return row and tonumber(row.total) and tonumber(row.total) > 0
+end
+
+local function ensureColumn(tableName, columnName, definition)
+  if hasColumn(tableName, columnName) then
+    return
+  end
+
+  queryAwait(('ALTER TABLE `%s` ADD COLUMN %s'):format(tableName, definition))
+end
+
+local function hasIndex(tableName, indexName)
+  local row = MySQL.single.await([[
+    SELECT COUNT(1) AS total
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = ?
+      AND index_name = ?
+  ]], { tableName, indexName })
+
+  return row and tonumber(row.total) and tonumber(row.total) > 0
+end
+
+local function ensureIndex(tableName, indexName, definition)
+  if hasIndex(tableName, indexName) then
+    return
+  end
+
+  queryAwait(('ALTER TABLE `%s` ADD INDEX `%s` %s'):format(tableName, indexName, definition))
+end
+
+local function ensureHousePropertyColumns()
+  ensureColumn('mz_houses', 'category', "`category` VARCHAR(40) NOT NULL DEFAULT 'residential'")
+  ensureColumn('mz_houses', 'subtype', "`subtype` VARCHAR(40) NOT NULL DEFAULT 'house'")
+  ensureColumn('mz_houses', 'owner_type', "`owner_type` VARCHAR(40) NOT NULL DEFAULT 'player'")
+  ensureColumn('mz_houses', 'org_code', '`org_code` VARCHAR(80) NULL')
+  ensureColumn('mz_houses', 'business_code', '`business_code` VARCHAR(80) NULL')
+  ensureColumn('mz_houses', 'features_json', '`features_json` LONGTEXT NULL')
+
+  ensureIndex('mz_houses', 'idx_mz_houses_category', '(`category`)')
+  ensureIndex('mz_houses', 'idx_mz_houses_owner_type', '(`owner_type`)')
+  ensureIndex('mz_houses', 'idx_mz_houses_org_code', '(`org_code`)')
+end
+
 function MZHousesPrepare.run()
   if not databaseEnabled() then
     debugLog('database disabled; skipping prepare')
@@ -98,8 +164,10 @@ function MZHousesPrepare.run()
   end
 
   for _, statement in ipairs(statements) do
-    MySQL.query.await(statement)
+    queryAwait(statement)
   end
+
+  ensureHousePropertyColumns()
 
   debugLog('tables ready')
   return true

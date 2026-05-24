@@ -28,8 +28,13 @@
 - [ ] `/mhouse_exit` sai via `mz_interiors`.
 - [ ] Marker ou `mz_interact` aparece na entrada configurada.
 - [ ] Tecla `E` entra na casa pelo ponto.
+- [ ] Com `MZHousesConfig.Visibility.enabled = true`, player recebe apenas pontos visiveis para ele.
+- [ ] Admin `group.mz_owner` ve casas residenciais, privadas e org/base.
 - [ ] Com `access.public = true`, a entrada continua liberada.
 - [ ] Com `access.public = false`, player sem owner/chave e bloqueado.
+- [ ] Casa privada/comprada aparece apenas para owner/chave/admin por padrao.
+- [ ] Casa sem owner e sem `listing.enabled` nao aparece automaticamente para todos.
+- [ ] Casa com `listing.enabled = true` permanece apenas como metadata; nao mostra placa/marker nesta fase e nao libera entrada.
 - [ ] `server.cfg` contem `add_ace group.mz_owner group.mz_owner allow`.
 - [ ] Admin tem `add_principal identifier.license:SUA_LICENSE group.mz_owner`.
 - [ ] Se necessario, admin tem `add_principal identifier.license2:SUA_LICENSE2 group.mz_owner`.
@@ -39,11 +44,49 @@
 - [ ] `/mhouse_givekey casa_teste_01 CITIZENID` permite entrada por chave.
 - [ ] `/mhouse_removekey casa_teste_01 CITIZENID` bloqueia novamente.
 - [ ] `/mhouse_keys casa_teste_01` lista owner/chaves runtime.
+- [ ] `/mhouse_access casa_teste_01` mostra `category=residential`.
+- [ ] `/mhouse_access casa_teste_01` mostra `subtype=house`.
+- [ ] `/mhouse_access casa_teste_01` mostra `ownerType=player`.
+- [ ] `/mhouse_access casa_teste_01` mostra `accessMode=player`.
+- [ ] `/mhouse_access casa_teste_01` mostra `features=stash,wardrobe,garage`.
+- [ ] `/mhouse_access casa_teste_01` mostra `canBeListed=true` quando residencial/player/listavel.
+- [ ] `/mhouse_access base_ballas` mostra `canBeListed=false` e `reason=org_property`.
+- [ ] `GetPublicPropertyInfo`/`GetPropertyByCode` retornam dados sanitizados, sem owner/chaves/capabilities/grade.
+- [ ] `ListProperties` retorna lista sanitizada filtravel por `category`, `subtype`, `ownerType`, `enabled` e `canBeListed`.
+- [ ] Exports de mutacao de owner/chaves sem `actorSource` retornam `actor_required`.
+- [ ] Exports de mutacao de owner/chaves com ator sem `group.mz_owner` retornam `admin_required`.
+- [ ] Exports de mutacao de owner/chaves com admin funcionam e disparam refresh de visibilidade.
+- [ ] Propriedade org de teste mostra `accessMode=org` e `orgCode=...`.
+- [ ] Propriedade org de teste mostra `enterAccess=member` ou a capability/grade configurada.
+- [ ] Propriedade org de teste mostra `featuresAccess=stash:... wardrobe:... garage:...`.
+- [ ] Membro ativo da org acessa propriedade `ownerType = 'org'`.
+- [ ] Player fora da org recebe bloqueio `org_access_denied`.
+- [ ] Player fora da org nao ve marker/interact/garagem externa da org/base por padrao.
+- [ ] Com `mz_org` parado, player normal recebe `org_access_unavailable`.
+- [ ] Admin `group.mz_owner` acessa propriedade org mesmo sem membership.
+- [ ] Admin `group.mz_owner` ve propriedade org mesmo sem membership.
+- [ ] Org base nao libera acesso por chave residencial.
+- [ ] `requiredCapability`, se configurado, usa `mz_core:CanOrg`.
+- [ ] `requiredGradeLevel`, se configurado, usa `mz_core:HasGradeOrAbove`.
+- [ ] Quando capability e grade sao configurados juntos em um recurso, ambos sao exigidos.
+- [ ] Membro sem `storage.open` nao abre bau com `access.features.stash.requiredCapability = 'storage.open'`.
+- [ ] Membro abaixo de `requiredGradeLevel = 2` nao abre garagem quando a regra existe.
+- [ ] Ausencia de `access.features.<recurso>` mantem fallback de acesso geral da propriedade.
 - [ ] `/mhouse_reload` recarrega cache do banco/config.
+- [ ] `restart mz_houses` cria/garante colunas `category`, `subtype`, `owner_type`, `org_code`, `business_code`, `features_json` sem migracao manual.
+- [ ] Casas antigas sem esses campos continuam abrindo com defaults.
+- [ ] `owner_citizenid` existente nao e sobrescrito pelo sync do config.
+- [ ] `features_json` permanece apenas liga/desliga e nao armazena as regras finas de acesso.
 - [ ] Com `MZHousesConfig.Debug = false`, `/mhouse_testgarage` nao fica disponivel.
 - [ ] Com `MZHousesConfig.Debug = true`, `/mhouse_testgarage casa_teste_01` exige `group.mz_owner`.
 - [ ] `restart mz_houses` mantem owner salvo.
 - [ ] `restart mz_houses` mantem chaves salvas.
+- [ ] `MZHousesConfig.Logging.mode = 'central'` grava acoes em `mz_logs` com `scope = 'house'`.
+- [ ] `mz_logs.target` usa `house:<codigo>`.
+- [ ] `data_json` contem `actor`, `target`, `context` e `meta`, sem tokens/sessoes/inventario completo.
+- [ ] `mz_house_logs` continua existindo apenas como legado/fallback; nenhuma tabela e apagada.
+- [ ] Com `mode = 'both'`, as acoes aparecem em `mz_logs` e `mz_house_logs`.
+- [ ] Com `mode = 'central'` e central indisponivel, `localFallback = true` grava em `mz_house_logs`.
 - [ ] Marker do bau aparece dentro da casa quando `stash.enabled = true`.
 - [ ] Tecla `E` no bau chama validacao server-side.
 - [ ] Player sem owner/chave/admin nao consegue abrir bau.
@@ -76,4 +119,4 @@
 - [ ] Manter `MZHousesConfig.Debug = false` e `MZGaragemConfig.debug = false`, exceto durante diagnostico.
 - [ ] Confirmar `mz_interiors` com stream dos shells.
 - [ ] Executar `mz_houses/docs/MVP_TEST_PLAN.md`.
-- [ ] Definir proxima fase: venda ou categorias de propriedade.
+- [ ] Definir proxima fase: org_base, business/comercio, venda/transferencia ou furniture separado.

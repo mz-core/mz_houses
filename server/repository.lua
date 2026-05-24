@@ -16,6 +16,113 @@ local function normalizeCitizenId(value)
   return citizenid
 end
 
+local function normalizeOptionalCode(value)
+  local code = trim(value)
+  if code == '' then return nil end
+  return code
+end
+
+local function normalizeCategory(value)
+  local allowed = {
+    residential = true,
+    org = true,
+    business = true,
+    public = true
+  }
+
+  value = tostring(value or 'residential'):lower()
+  return allowed[value] and value or 'residential'
+end
+
+local function normalizeSubtype(value)
+  local allowed = {
+    house = true,
+    apartment = true,
+    org_base = true,
+    gang_base = true,
+    business = true,
+    motel = true,
+    hotel = true
+  }
+
+  value = tostring(value or 'house'):lower()
+  return allowed[value] and value or 'house'
+end
+
+local function normalizeOwnerType(value)
+  local allowed = {
+    player = true,
+    org = true,
+    business = true,
+    none = true
+  }
+
+  value = tostring(value or 'player'):lower()
+  return allowed[value] and value or 'player'
+end
+
+local function normalizeFeatureBool(value, fallback)
+  if value == nil then
+    value = fallback
+  end
+
+  if value == true then return true end
+  if value == false or value == nil then return false end
+
+  local numberValue = tonumber(value)
+  if numberValue ~= nil then
+    return numberValue == 1
+  end
+
+  local textValue = tostring(value):lower():gsub('^%s+', ''):gsub('%s+$', '')
+  return textValue == '1' or textValue == 'true' or textValue == 'yes'
+end
+
+local function getPropertyDefaults()
+  local defaults = MZHousesConfig and MZHousesConfig.PropertyDefaults or {}
+  local features = type(defaults.features) == 'table' and defaults.features or {}
+
+  return {
+    category = defaults.category or 'residential',
+    subtype = defaults.subtype or 'house',
+    ownerType = defaults.ownerType or defaults.owner_type or 'player',
+    orgCode = defaults.orgCode or defaults.org_code,
+    businessCode = defaults.businessCode or defaults.business_code,
+    features = {
+      stash = features.stash ~= false,
+      wardrobe = features.wardrobe ~= false,
+      garage = features.garage == true,
+      furniture = features.furniture == true
+    }
+  }
+end
+
+local function normalizeFeatures(features, defaults)
+  features = type(features) == 'table' and features or {}
+  defaults = type(defaults) == 'table' and defaults or {}
+
+  return {
+    stash = normalizeFeatureBool(features.stash, defaults.stash),
+    wardrobe = normalizeFeatureBool(features.wardrobe, defaults.wardrobe),
+    garage = normalizeFeatureBool(features.garage, defaults.garage),
+    furniture = normalizeFeatureBool(features.furniture, defaults.furniture)
+  }
+end
+
+local function normalizePropertyFields(data)
+  data = type(data) == 'table' and data or {}
+  local defaults = getPropertyDefaults()
+
+  return {
+    category = normalizeCategory(data.category or defaults.category),
+    subtype = normalizeSubtype(data.subtype or defaults.subtype),
+    ownerType = normalizeOwnerType(data.ownerType or data.owner_type or defaults.ownerType),
+    orgCode = normalizeOptionalCode(data.orgCode or data.org_code or defaults.orgCode),
+    businessCode = normalizeOptionalCode(data.businessCode or data.business_code or defaults.businessCode),
+    features = normalizeFeatures(data.features, defaults.features)
+  }
+end
+
 local function encodeJson(value)
   local ok, encoded = pcall(json.encode, value or {})
   if ok and encoded then return encoded end
@@ -69,9 +176,30 @@ local function rowToHouse(row)
 
   row.entrance = decodeJson(row.entrance_json, nil)
   row.garage = decodeJson(row.garage_json, nil)
+  local property = normalizePropertyFields({
+    category = row.category,
+    subtype = row.subtype,
+    ownerType = row.owner_type,
+    orgCode = row.org_code,
+    businessCode = row.business_code,
+    features = decodeJson(row.features_json, nil)
+  })
+  row.category = property.category
+  row.subtype = property.subtype
+  row.owner_type = property.ownerType
+  row.ownerType = property.ownerType
+  row.org_code = property.orgCode
+  row.orgCode = property.orgCode
+  row.business_code = property.businessCode
+  row.businessCode = property.businessCode
+  row.features = property.features
   row.enabled = databaseBool(row.enabled)
   row.public = databaseBool(row.public)
   return row
+end
+
+function MZHousesRepository.normalizePropertyFields(data)
+  return normalizePropertyFields(data)
 end
 
 function MZHousesRepository.getHouseByCode(code)
@@ -123,19 +251,28 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
   local enabled = data.enabled ~= false and 1 or 0
   local entranceJson = encodeJson(vectorToPlain(data.entrance))
   local garageJson = encodeJson(data.garage or {})
+  local property = normalizePropertyFields(data)
+  local featuresJson = encodeJson(property.features)
 
   if not existing then
     MySQL.insert.await([[
       INSERT INTO mz_houses (
-        code, label, type, shell, entrance_json, garage_json, status, enabled, public, owner_citizenid
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        code, label, category, subtype, owner_type, org_code, business_code,
+        type, shell, entrance_json, garage_json, features_json, status, enabled, public, owner_citizenid
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
       code,
       label,
+      property.category,
+      property.subtype,
+      property.ownerType,
+      property.orgCode,
+      property.businessCode,
       houseType,
       shell,
       entranceJson,
       garageJson,
+      featuresJson,
       status,
       enabled,
       public,
@@ -152,14 +289,21 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
 
   MySQL.update.await([[
     UPDATE mz_houses
-    SET label = ?, type = ?, shell = ?, entrance_json = ?, garage_json = ?, status = ?, enabled = ?, public = ?
+    SET label = ?, category = ?, subtype = ?, owner_type = ?, org_code = ?, business_code = ?,
+        type = ?, shell = ?, entrance_json = ?, garage_json = ?, features_json = ?, status = ?, enabled = ?, public = ?
     WHERE code = ?
   ]], {
     label,
+    property.category,
+    property.subtype,
+    property.ownerType,
+    property.orgCode,
+    property.businessCode,
     houseType,
     shell,
     entranceJson,
     garageJson,
+    featuresJson,
     status,
     enabled,
     nextPublic,

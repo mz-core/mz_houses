@@ -60,6 +60,22 @@ local function safeJson(value)
   return tostring(encoded)
 end
 
+local function featuresToText(features)
+  features = type(features) == 'table' and features or {}
+  local names = {}
+
+  if features.stash == true then names[#names + 1] = 'stash' end
+  if features.wardrobe == true then names[#names + 1] = 'wardrobe' end
+  if features.garage == true then names[#names + 1] = 'garage' end
+  if features.furniture == true then names[#names + 1] = 'furniture' end
+
+  if #names == 0 then
+    return 'none'
+  end
+
+  return table.concat(names, ',')
+end
+
 local function reply(source, message)
   message = tostring(message or '')
   if tonumber(source) == 0 then
@@ -71,6 +87,10 @@ local function reply(source, message)
     color = { 120, 190, 255 },
     args = { 'mz_houses', message }
   })
+end
+
+local function refreshVisibilityTargets(reason)
+  TriggerClientEvent('mz_houses:client:refreshVisibility', -1, reason or 'server_refresh')
 end
 
 local function isAceAllowed(src, ace)
@@ -257,6 +277,7 @@ local function registerAdminCommands()
       return reply(source, ('Erro: %s'):format(tostring(result)))
     end
 
+    refreshVisibilityTargets('owner_set')
     reply(source, ('Dono definido: casa=%s owner=%s'):format(result.houseCode, result.owner))
   end, false)
 
@@ -270,6 +291,7 @@ local function registerAdminCommands()
       return reply(source, ('Erro: %s'):format(tostring(result)))
     end
 
+    refreshVisibilityTargets('owner_cleared')
     reply(source, ('Dono removido: casa=%s'):format(result.houseCode))
   end, false)
 
@@ -283,6 +305,7 @@ local function registerAdminCommands()
       return reply(source, ('Erro: %s'):format(tostring(result)))
     end
 
+    refreshVisibilityTargets('key_given')
     reply(source, ('Chave entregue: casa=%s citizenid=%s'):format(result.houseCode, result.citizenid))
   end, false)
 
@@ -296,6 +319,7 @@ local function registerAdminCommands()
       return reply(source, ('Erro: %s'):format(tostring(result)))
     end
 
+    refreshVisibilityTargets('key_removed')
     reply(source, ('Chave removida: casa=%s citizenid=%s'):format(result.houseCode, result.citizenid))
   end, false)
 
@@ -323,16 +347,29 @@ local function registerAdminCommands()
       return reply(source, 'Voce nao tem permissao para usar este comando.')
     end
 
-    local ok, result = MZHousesService.listHouseKeys(args and args[1])
+    local ok, result = MZHousesService.listHouseKeys(args and args[1], source, isHouseAdmin(source))
     if not ok then
       return reply(source, ('Erro: %s'):format(tostring(result)))
     end
 
-    reply(source, ('Casa=%s public=%s owner=%s key_count=%d database=%s'):format(
+    reply(source, ('Casa=%s accessMode=%s category=%s subtype=%s ownerType=%s orgCode=%s businessCode=%s features=%s enterAccess=%s featuresAccess=%s public=%s owner=%s key_count=%d currentAccess=%s reason=%s canBeListed=%s listReason=%s database=%s'):format(
       result.houseCode,
+      tostring(result.accessMode or 'player'),
+      tostring(result.category or 'residential'),
+      tostring(result.subtype or 'house'),
+      tostring(result.ownerType or 'player'),
+      tostring(result.orgCode or 'nil'),
+      tostring(result.businessCode or 'nil'),
+      featuresToText(result.features),
+      tostring(result.enterAccess or 'member'),
+      tostring(result.featuresAccess or 'none'),
       tostring(result.public == true),
       tostring(result.owner or 'nil'),
       #result.keys,
+      result.currentAccess == nil and 'nil' or tostring(result.currentAccess == true),
+      tostring(result.currentAccessReason or 'nil'),
+      tostring(result.canBeListed == true),
+      tostring(result.canBeListedReason or 'nil'),
       tostring(result.database == true)
     ))
   end, false)
@@ -351,6 +388,7 @@ local function registerAdminCommands()
       return reply(source, ('Erro ao recarregar casas: %s'):format(tostring(err)))
     end
 
+    refreshVisibilityTargets('reload')
     reply(source, ('Casas recarregadas. total=%d'):format(MZHousesService.countHouses()))
   end, false)
 
@@ -361,6 +399,107 @@ local function registerAdminCommands()
   end
 end
 
+lib.callback.register('mz_houses:server:listVisibleHouses', function(source)
+  local houses = MZHousesService.listVisibleHouses(source)
+  return {
+    ok = true,
+    houses = houses,
+    cacheSeconds = tonumber((MZHousesConfig.Visibility or {}).cacheSeconds) or 5
+  }
+end)
+
+lib.callback.register('mz_houses:server:getPublicPropertyInfo', function(source, payload)
+  local houseCode = type(payload) == 'table' and payload.houseCode or payload
+  local canSeeEntry = MZHousesService.CanSeeHouse(source, houseCode, 'entry')
+  local canSeeGarage = MZHousesService.CanSeeHouse(source, houseCode, 'garage')
+  if canSeeEntry ~= true and canSeeGarage ~= true then
+    return { ok = false, error = 'not_visible' }
+  end
+
+  local property, err = MZHousesService.getPublicPropertyInfo(houseCode)
+  if not property then
+    return { ok = false, error = err or 'house_not_found' }
+  end
+
+  return { ok = true, property = property }
+end)
+
+lib.callback.register('mz_houses:server:listProperties', function(source, filters)
+  filters = type(filters) == 'table' and filters or {}
+  local visible = MZHousesService.listVisibleHouses(source)
+  local properties = {}
+
+  for _, visibleHouse in ipairs(visible) do
+    local property = MZHousesService.getPublicPropertyInfo(visibleHouse.code)
+    if property then
+      local include = true
+
+      if filters.category ~= nil and trim(filters.category) ~= '' then
+        include = include and property.category == trim(filters.category)
+      end
+
+      if filters.subtype ~= nil and trim(filters.subtype) ~= '' then
+        include = include and property.subtype == trim(filters.subtype)
+      end
+
+      if filters.ownerType ~= nil and trim(filters.ownerType) ~= '' then
+        include = include and property.ownerType == trim(filters.ownerType)
+      end
+
+      if filters.canBeListed ~= nil then
+        include = include and property.canBeListed == (filters.canBeListed == true)
+      end
+
+      if filters.enabled ~= nil then
+        include = include and property.enabled == (filters.enabled == true)
+      end
+
+      if include then
+        properties[#properties + 1] = property
+      end
+    end
+  end
+
+  return {
+    ok = true,
+    properties = properties
+  }
+end)
+
+lib.callback.register('mz_houses:server:canPlayerAccessProperty', function(source, payload)
+  local houseCode = type(payload) == 'table' and payload.houseCode or payload
+  local ok, result = MZHousesService.canEnterHouse(source, houseCode, isHouseAdmin(source))
+  return {
+    ok = true,
+    allowed = ok == true,
+    reason = ok == true and type(result) == 'table' and result.reason or result
+  }
+end)
+
+lib.callback.register('mz_houses:server:canPlayerManageProperty', function(source, payload)
+  local houseCode = type(payload) == 'table' and payload.houseCode or payload
+  local ok, reason = MZHousesService.canPlayerManageProperty(source, houseCode, isHouseAdmin(source))
+  return {
+    ok = true,
+    allowed = ok == true,
+    reason = reason
+  }
+end)
+
+lib.callback.register('mz_houses:server:canPropertyBeListed', function(source, payload)
+  local houseCode = type(payload) == 'table' and payload.houseCode or payload
+  local ok, reason = MZHousesService.CanPropertyBeListed(houseCode)
+  MZHousesService.log('house.realestate.can_list', houseCode, source, nil, {
+    allowed = ok == true,
+    reason = reason
+  })
+  return {
+    ok = true,
+    allowed = ok == true,
+    reason = reason
+  }
+end)
+
 lib.callback.register('mz_houses:server:canEnterHouse', function(source, payload)
   local houseCode = type(payload) == 'table' and payload.houseCode or payload
   local ok, result = MZHousesService.canEnterHouse(source, houseCode, isHouseAdmin(source))
@@ -370,6 +509,10 @@ lib.callback.register('mz_houses:server:canEnterHouse', function(source, payload
       error = result or 'no_house_access'
     }
   end
+
+  MZHousesService.log('house.open', result and result.houseCode or trim(houseCode), source, nil, {
+    reason = result and result.reason or 'allowed'
+  })
 
   return {
     ok = true,
@@ -460,24 +603,80 @@ exports('CanEnterHouse', function(source, houseCode)
   return MZHousesService.canEnterHouse(source, houseCode, isHouseAdmin(source))
 end)
 
-exports('SetHouseOwner', function(houseCode, citizenid)
-  return MZHousesService.setHouseOwner(houseCode, citizenid, 0)
+exports('GetPropertyByCode', function(code)
+  return MZHousesService.GetPropertyByCode(code)
 end)
 
-exports('ClearHouseOwner', function(houseCode)
-  return MZHousesService.clearHouseOwner(houseCode, 0)
+exports('GetPublicPropertyInfo', function(code)
+  return MZHousesService.getPublicPropertyInfo(code)
 end)
 
-exports('GiveHouseKey', function(houseCode, citizenid)
-  return MZHousesService.giveHouseKey(houseCode, citizenid, 0)
+exports('ListProperties', function(filters)
+  return MZHousesService.ListProperties(filters)
 end)
 
-exports('RemoveHouseKey', function(houseCode, citizenid)
-  return MZHousesService.removeHouseKey(houseCode, citizenid, 0)
+exports('CanPlayerAccessProperty', function(source, code)
+  return MZHousesService.canEnterHouse(source, code, isHouseAdmin(source))
+end)
+
+exports('CanPlayerManageProperty', function(source, code)
+  return MZHousesService.canPlayerManageProperty(source, code, isHouseAdmin(source))
+end)
+
+exports('CanPropertyBeListed', function(code)
+  return MZHousesService.CanPropertyBeListed(code)
+end)
+
+exports('SetPropertyOwner', function(code, citizenid, actorSource, reason, meta)
+  local ok, result = MZHousesService.SetPropertyOwner(code, citizenid, actorSource, reason, meta)
+  if ok then refreshVisibilityTargets('property_owner_set') end
+  return ok, result
+end)
+
+exports('ClearPropertyOwner', function(code, actorSource, reason, meta)
+  local ok, result = MZHousesService.ClearPropertyOwner(code, actorSource, reason, meta)
+  if ok then refreshVisibilityTargets('property_owner_cleared') end
+  return ok, result
+end)
+
+exports('GivePropertyKey', function(code, citizenid, actorSource, reason, meta)
+  local ok, result = MZHousesService.GivePropertyKey(code, citizenid, actorSource, reason, meta)
+  if ok then refreshVisibilityTargets('property_key_given') end
+  return ok, result
+end)
+
+exports('RemovePropertyKey', function(code, citizenid, actorSource, reason, meta)
+  local ok, result = MZHousesService.RemovePropertyKey(code, citizenid, actorSource, reason, meta)
+  if ok then refreshVisibilityTargets('property_key_removed') end
+  return ok, result
+end)
+
+exports('SetHouseOwner', function(houseCode, citizenid, actorSource, reason, meta)
+  local ok, result = MZHousesService.SetPropertyOwner(houseCode, citizenid, actorSource, reason, meta)
+  if ok then refreshVisibilityTargets('house_owner_set') end
+  return ok, result
+end)
+
+exports('ClearHouseOwner', function(houseCode, actorSource, reason, meta)
+  local ok, result = MZHousesService.ClearPropertyOwner(houseCode, actorSource, reason, meta)
+  if ok then refreshVisibilityTargets('house_owner_cleared') end
+  return ok, result
+end)
+
+exports('GiveHouseKey', function(houseCode, citizenid, actorSource, reason, meta)
+  local ok, result = MZHousesService.GivePropertyKey(houseCode, citizenid, actorSource, reason, meta)
+  if ok then refreshVisibilityTargets('house_key_given') end
+  return ok, result
+end)
+
+exports('RemoveHouseKey', function(houseCode, citizenid, actorSource, reason, meta)
+  local ok, result = MZHousesService.RemovePropertyKey(houseCode, citizenid, actorSource, reason, meta)
+  if ok then refreshVisibilityTargets('house_key_removed') end
+  return ok, result
 end)
 
 exports('GetHouseAccess', function(houseCode)
-  return MZHousesService.listHouseKeys(houseCode)
+  return MZHousesService.getPublicPropertyInfo(houseCode)
 end)
 
 exports('OpenHouseStash', function(source, houseCode)
