@@ -89,6 +89,22 @@ local function getAdminAce()
   return ace
 end
 
+local function isAceAllowed(src, ace)
+  local sourceId = tonumber(src)
+  if not sourceId or sourceId <= 0 then
+    return false
+  end
+
+  ace = trim(ace)
+  if ace == '' then
+    return false
+  end
+
+  local allowed = IsPlayerAceAllowed(sourceId, ace)
+  local normalized = tostring(allowed):lower()
+  return allowed == true or allowed == 1 or normalized == '1' or normalized == 'true'
+end
+
 local function isAdmin(source)
   if (MZHousesConfig.AdminMenu or {}).enabled == false then
     return false
@@ -99,7 +115,22 @@ local function isAdmin(source)
     return true
   end
 
-  return IsPlayerAceAllowed(src, getAdminAce()) == true
+  -- Usa exatamente o mesmo validador dos comandos admin quando ele ja estiver carregado.
+  -- Isso evita divergencia entre /mhouse_* funcionando e /mhouse_admin negando permissao.
+  if type(isHouseAdmin) == 'function' then
+    local ok, allowed = pcall(isHouseAdmin, src)
+    if ok then
+      return allowed == true
+    end
+  end
+
+  -- Fallback robusto: alguns ambientes retornam 1/'1' em vez de boolean true.
+  local admin = MZHousesConfig.Admin or {}
+  if admin.requireAce ~= true then
+    return true
+  end
+
+  return isAceAllowed(src, getAdminAce())
 end
 
 local function adminEnabled()
