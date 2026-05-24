@@ -152,11 +152,24 @@ MZHousesConfig.InteriorDefaults = {
 
 Prioridade:
 
-1. Config especifica da casa, por exemplo `MZHousesConfig.Houses.casa_teste_01.wardrobe`.
-2. Default do shell em `MZHousesConfig.InteriorDefaults[house.shell].wardrobe`.
-3. Se nenhum existir ou `enabled = false`, o ponto nao aparece.
+1. Override da propriedade salvo no banco em `interior_json`, por exemplo `property.interior.wardrobe`.
+2. Config especifica da casa, por exemplo `MZHousesConfig.Houses.casa_teste_01.wardrobe`.
+3. Default do shell em `MZHousesConfig.InteriorDefaults[house.shell].wardrobe`.
+4. Se nenhum existir ou `enabled = false`, o ponto nao aparece.
 
-Use `relative = true` para offsets internos do shell. Os comandos `*_here` imprimem uma sugestao de default relativo por shell.
+Use `relative = true` para offsets internos do shell. O `mz_interiors` apenas cria/teleporta/remove a shell; o `mz_houses` gerencia os pontos de gameplay da propriedade. O menu admin salva overrides relativos ao `spawnCoords` real do interior.
+
+Ao trocar o shell por `/mhouse_setshell` ou pelo menu, os overrides internos da propriedade sao resetados para evitar coordenadas herdadas do shell anterior. Depois disso, o imovel usa `InteriorDefaults[shell]` ou novos overrides definidos no menu.
+
+Comandos fallback para overrides internos:
+
+```txt
+/mhouse_exit_here codigo
+/mhouse_stash_here codigo
+/mhouse_wardrobe_here codigo
+/mhouse_internal_info codigo
+/mhouse_internal_reset codigo
+```
 
 ### Banco
 
@@ -666,7 +679,7 @@ Fluxo exemplo:
 
 ### Menu admin in-game
 
-O menu `/mhouse_admin` e a camada pratica para admins criarem/editarem imoveis no mundo. Ele usa `ox_lib` (`context` e `inputDialog`), ja declarado no `fxmanifest`, e chama callbacks server-side que reutilizam os mesmos services dos comandos. O server sempre revalida `group.mz_owner`.
+O menu `/mhouse_admin` e a camada pratica para admins criarem/editarem imoveis no mundo. Ele usa o resource `mz_menu` como camada visual padronizada do MZ_CORE. O `mz_menu` por baixo usa `ox_lib`, mas o `mz_houses` nao chama mais `ox_lib context/inputDialog` diretamente para o menu. As callbacks server-side continuam reutilizando os mesmos services dos comandos e o server sempre revalida `group.mz_owner`.
 
 ```txt
 /mhouse_admin
@@ -679,7 +692,10 @@ Fluxo recomendado:
 Criar imovel aqui
 Editar imovel criado
 Entrada / Interior -> Definir entrada aqui
-Entrada / Interior -> Alterar shell
+Entrada / Interior -> Alterar shell pela lista do mz_interiors
+Interior / Pontos Internos -> Definir saida aqui
+Interior / Pontos Internos -> Definir bau aqui
+Interior / Pontos Internos -> Definir armario aqui
 Garagem -> Ativar garagem
 Garagem -> Definir ponto de abrir aqui
 Garagem -> Definir spawn aqui
@@ -688,7 +704,28 @@ Visibilidade / Listavel -> Listable true
 Informacoes
 ```
 
-Se `ox_lib` nao estiver disponivel, o menu avisa e os comandos acima continuam como fallback tecnico. O menu nao implementa compra, venda, corretor, comissao, NUI ou placa de venda.
+Se `mz_menu` nao estiver iniciado, o menu avisa e os comandos acima continuam como fallback tecnico. Garanta a ordem no `server.cfg`: `ensure ox_lib`, `ensure mz_menu`, depois `ensure mz_houses`. O menu nao implementa compra, venda, corretor, comissao, NUI ou placa de venda.
+
+Na criacao e na troca de shell, o menu consulta
+`exports['mz_interiors']:GetShells()` e mostra apenas shells habilitados e
+selecionaveis. O servidor tambem valida o shell antes de persistir, entao
+eventos/comandos diretos nao conseguem salvar um shell desabilitado por acidente.
+
+Shells habilitados atualmente pelo `mz_interiors`:
+
+```txt
+apartment_low
+container
+house_mid
+motel_modern
+shell_test
+```
+
+Shells streamados mas sem offset seguro ficam desabilitados no `mz_interiors`
+ate serem calibrados. Se uma shell nao tiver pontos internos completos em
+`MZHousesConfig.InteriorDefaults`, entre no imovel e use
+`Interior / Pontos Internos` para definir saida, bau e armario como override da
+propriedade.
 
 `/mhouse_access casa_teste_01` mostra tambem o modelo estrutural:
 

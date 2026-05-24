@@ -18,6 +18,9 @@ Use este plano antes de seguir para venda, imobiliaria, org_base, business, mobi
 - [ ] `restart mz_houses`
 - [ ] Console/F8 sem erro.
 - [ ] Com `Debug = false`, sem spam de descriptor, token, session ou listagem.
+- [ ] `/mint_list` lista shells habilitados e desabilitados com motivo.
+- [ ] `/mint_enter house_mid` nao cai no limbo.
+- [ ] `/mint_exit` volta para fora.
 
 ## 2. Modelo estrutural
 
@@ -105,6 +108,17 @@ Use este plano antes de seguir para venda, imobiliaria, org_base, business, mobi
 
 ## 7. Bau da casa
 
+## 6.2. Admin menu e shells
+
+- [ ] `/mhouse_admin` abre para admin `group.mz_owner`.
+- [ ] Criar imovel aqui mostra o campo `Shell / Interior` como lista/select.
+- [ ] A lista mostra apenas shells selecionaveis do `mz_interiors`.
+- [ ] Trocar shell para `house_mid` salva, reseta overrides internos e nao joga o player no limbo ao entrar.
+- [ ] Trocar para shell sem defaults completos avisa/permite definir pontos internos pelo menu.
+- [ ] Comando/evento direto com shell desabilitado retorna erro e nao persiste.
+
+## 7. Bau da casa
+
 - [ ] Entrar como owner/chave.
 - [ ] Marker do bau aparece no ponto de `InteriorDefaults` ou override da casa.
 - [ ] Tecla `E` abre o inventario real.
@@ -119,6 +133,18 @@ Use este plano antes de seguir para venda, imobiliaria, org_base, business, mobi
 
 - [ ] Entrar como owner/chave.
 - [ ] Marker do guarda-roupa aparece no ponto configurado.
+
+## 8.1. Pontos internos admin
+
+- [ ] Entrar no imovel como admin.
+- [ ] Abrir `/mhouse_admin`.
+- [ ] Ir em `Interior / Pontos Internos`.
+- [ ] Definir saida aqui, bau aqui e armario aqui.
+- [ ] Sair e entrar novamente.
+- [ ] Confirmar que saida/bau/armario aparecem nas posicoes definidas.
+- [ ] Executar `/mhouse_internal_info codigo` e conferir resumo.
+- [ ] Executar `/mhouse_internal_reset codigo` e confirmar retorno ao default do shell.
+- [ ] Trocar shell e confirmar que usa `InteriorDefaults[shell]` ou permite redefinir pelo menu.
 - [ ] Tecla `E` abre o fluxo real do `mz_clothing`.
 - [ ] Salvar/aplicar roupa pelo sistema de clothing.
 - [ ] Sair/entrar novamente ou relogar conforme fluxo da base.
@@ -207,7 +233,8 @@ LIMIT 100;
 
 ## 11.3. Menu admin in-game
 
-- [ ] Como admin, executar `/mhouse_admin`.
+- [ ] Garantir ordem: `ensure ox_lib`, `ensure mz_menu`, depois `ensure mz_houses`.
+- [ ] Como admin, executar `/mhouse_admin` usando o visual do `mz_menu`.
 - [ ] Criar imovel pelo menu em posicao atual.
 - [ ] Buscar o imovel criado por codigo.
 - [ ] Editar label, shell e entrada pelo menu.

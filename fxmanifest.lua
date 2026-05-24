@@ -29,5 +29,6 @@ server_scripts {
 dependencies {
   'ox_lib',
   'oxmysql',
-  'mz_interiors'
+  'mz_interiors',
+  'mz_menu'
 }

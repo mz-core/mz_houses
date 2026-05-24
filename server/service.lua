@@ -174,7 +174,9 @@ local function getEffectiveHousePoint(house, pointName)
   end
 
   local defaults = getHouseInteriorDefaults(house)
-  local point = shallowMerge(defaults and defaults[pointName] or nil, house[pointName])
+  local interior = type(house.interior) == 'table' and house.interior or {}
+  local override = type(interior[pointName]) == 'table' and interior[pointName] or house[pointName]
+  local point = shallowMerge(defaults and defaults[pointName] or nil, override)
   if next(point) == nil then
     return nil
   end
@@ -1688,6 +1690,89 @@ local function getDefaultAdminShell()
   return shell
 end
 
+function MZHousesService.ListAvailableShells()
+  local out = {}
+  local seen = {}
+
+  if GetResourceState('mz_interiors') == 'started' then
+    local ok, shells = pcall(function()
+      return exports['mz_interiors']:GetShells()
+    end)
+
+    if ok and type(shells) == 'table' then
+      for name, shell in pairs(shells) do
+        local shellName = nil
+        local label = nil
+        local enabled = false
+        local reason = nil
+
+        if type(shell) == 'table' and shell.name ~= nil then
+          shellName = trim(shell.name)
+          label = trim(shell.label) ~= '' and trim(shell.label) or shellName
+          enabled = shell.enabled ~= false and shell.selectable ~= false
+          reason = shell.disabledReason
+        elseif type(shell) == 'table' then
+          shellName = trim(name)
+          label = trim(shell.label) ~= '' and trim(shell.label) or shellName
+          enabled = shell.enabled ~= false and shell.exit ~= nil and trim(shell.model) ~= ''
+          reason = shell.disabledReason
+        end
+
+        if shellName ~= '' and not seen[shellName] then
+          seen[shellName] = true
+          out[#out + 1] = {
+            name = shellName,
+            label = label,
+            enabled = enabled == true,
+            selectable = enabled == true,
+            disabledReason = enabled == true and nil or (reason or 'shell_disabled')
+          }
+        end
+      end
+    end
+  end
+
+  if #out == 0 then
+    for shellName, defaults in pairs(MZHousesConfig.InteriorDefaults or {}) do
+      local normalizedShellName = trim(shellName)
+      if normalizedShellName ~= '' and not seen[normalizedShellName] then
+        seen[normalizedShellName] = true
+        out[#out + 1] = {
+          name = normalizedShellName,
+          label = trim(defaults and defaults.label) ~= '' and trim(defaults.label) or normalizedShellName,
+          enabled = true,
+          selectable = true
+        }
+      end
+    end
+  end
+
+  table.sort(out, function(left, right)
+    return tostring(left.label or left.name or '') < tostring(right.label or right.name or '')
+  end)
+
+  return out
+end
+
+function MZHousesService.IsShellSelectable(shellName)
+  shellName = trim(shellName)
+  if shellName == '' then
+    return false, 'invalid_shell'
+  end
+
+  for _, shell in ipairs(MZHousesService.ListAvailableShells() or {}) do
+    if trim(shell.name) == shellName then
+      if shell.enabled == true and shell.selectable ~= false then
+        return true, 'ok'
+      end
+
+      return false, shell.disabledReason or 'shell_disabled'
+    end
+  end
+
+  return false, 'shell_not_found'
+end
+
 local function defaultAdminFeatures()
   return {
     stash = true,
@@ -1735,6 +1820,10 @@ local function defaultAdminGarage()
   }
 end
 
+local function defaultAdminInterior()
+  return {}
+end
+
 local function getPersistableHouseData(code, patch)
   patch = type(patch) == 'table' and patch or {}
   local access = RuntimeAccess[code] or {}
@@ -1762,6 +1851,7 @@ local function getPersistableHouseData(code, patch)
     shell = patch.shell ~= nil and patch.shell or house.shell or getDefaultAdminShell(),
     entrance = patch.entrance ~= nil and patch.entrance or house.entrance,
     garage = patch.garage ~= nil and patch.garage or house.garage or defaultAdminGarage(),
+    interior = patch.interior ~= nil and patch.interior or house.interior or defaultAdminInterior(),
     features = patch.features ~= nil and patch.features or house.features or defaultAdminFeatures(),
     visibility = patch.visibility ~= nil and patch.visibility or house.visibility or 'restricted',
     listing = patch.listing ~= nil and patch.listing or house.listing or defaultAdminListing(),
@@ -1805,6 +1895,12 @@ function MZHousesService.createAdminProperty(actorSource, payload)
     return false, 'invalid_entrance'
   end
 
+  local shellName = trim(payload.shell) ~= '' and trim(payload.shell) or getDefaultAdminShell()
+  local shellOk, shellErr = MZHousesService.IsShellSelectable(shellName)
+  if not shellOk then
+    return false, shellErr or 'invalid_shell'
+  end
+
   local data = {
     label = label,
     category = 'residential',
@@ -1813,7 +1909,7 @@ function MZHousesService.createAdminProperty(actorSource, payload)
     orgCode = nil,
     businessCode = nil,
     type = 'shell',
-    shell = trim(payload.shell) ~= '' and trim(payload.shell) or getDefaultAdminShell(),
+    shell = shellName,
     entrance = entrance,
     status = 'draft',
     enabled = true,
@@ -1822,7 +1918,8 @@ function MZHousesService.createAdminProperty(actorSource, payload)
     access = { public = false },
     listing = defaultAdminListing(),
     realestate = defaultAdminRealestate(true),
-    garage = defaultAdminGarage()
+    garage = defaultAdminGarage(),
+    interior = defaultAdminInterior()
   }
 
   local ok, err = MZHousesRepository.createHouseFromAdmin(code, data)
@@ -1848,6 +1945,14 @@ function MZHousesService.updateAdminProperty(actorSource, houseCode, patch, acti
 
   if not databaseEnabled() then
     return false, 'database_disabled'
+  end
+
+  patch = type(patch) == 'table' and patch or {}
+  if patch.shell ~= nil then
+    local shellOk, shellErr = MZHousesService.IsShellSelectable(patch.shell)
+    if not shellOk then
+      return false, shellErr or 'invalid_shell'
+    end
   end
 
   local access = MZHousesService.getAccessState(code)
@@ -1969,6 +2074,87 @@ local function publicGaragePayload(garage, includeDisabled)
   }
 end
 
+local function publicInteriorPointPayload(point, pointName)
+  if type(point) ~= 'table' then
+    return nil
+  end
+
+  local payload = {
+    enabled = point.enabled ~= false,
+    coords = vector3Payload(point.coords),
+    relative = point.relative ~= false
+  }
+
+  local label = trim(point.label)
+  if label ~= '' then payload.label = label end
+
+  local heading = tonumber(point.heading or point.w)
+  if heading ~= nil then payload.heading = heading end
+
+  if pointName == 'stash' then
+    payload.slots = tonumber(point.slots)
+    payload.weight = tonumber(point.weight)
+  elseif pointName == 'wardrobe' then
+    local shopId = trim(point.shopId or point.shop_id)
+    if shopId ~= '' then payload.shopId = shopId end
+    local resource = trim(point.resource)
+    if resource ~= '' then payload.resource = resource end
+  end
+
+  return payload
+end
+
+local function publicInteriorPayload(house)
+  local interior = type(house) == 'table' and type(house.interior) == 'table' and house.interior or {}
+  local payload = {}
+
+  for _, pointName in ipairs({ 'exit', 'stash', 'wardrobe' }) do
+    local point = publicInteriorPointPayload(interior[pointName], pointName)
+    if point then
+      payload[pointName] = point
+    end
+  end
+
+  if next(payload) == nil then
+    return nil
+  end
+
+  return payload
+end
+
+local function internalPointStatus(house, pointName)
+  local interior = type(house) == 'table' and type(house.interior) == 'table' and house.interior or {}
+  local defaults = getHouseInteriorDefaults(house)
+  local override = type(interior[pointName]) == 'table' or type(house and house[pointName]) == 'table'
+  local default = type(defaults) == 'table' and type(defaults[pointName]) == 'table'
+  local effective = getEffectiveHousePoint(house, pointName)
+
+  if type(effective) ~= 'table' then
+    return { state = 'ausente', source = 'none', enabled = false }
+  end
+
+  local source = override and 'override' or (default and 'default' or 'none')
+  if effective.enabled == false then
+    return { state = 'desativado', source = source, enabled = false }
+  end
+
+  return {
+    state = effective.coords ~= nil and 'definido' or 'sem_coords',
+    source = source,
+    enabled = true
+  }
+end
+
+local function adminInternalSummaryPayload(house)
+  house = type(house) == 'table' and house or {}
+  return {
+    shell = trim(house.shell),
+    exit = internalPointStatus(house, 'exit'),
+    stash = internalPointStatus(house, 'stash'),
+    wardrobe = internalPointStatus(house, 'wardrobe')
+  }
+end
+
 local function publicHousePayload(code, house, flags)
   flags = type(flags) == 'table' and flags or {}
   house = type(house) == 'table' and house or {}
@@ -1985,6 +2171,7 @@ local function publicHousePayload(code, house, flags)
     shell = house.shell or configured.shell,
     entrance = vector4Payload(house.entrance or configured.entrance),
     features = property.features,
+    interior = publicInteriorPayload(house),
     entryVisible = flags.entryVisible == true,
     garageVisible = flags.garageVisible == true,
     listingVisible = flags.listingVisible == true
@@ -2030,6 +2217,7 @@ function MZHousesService.getPublicPropertyInfo(houseCode)
     shell = house.shell or configured.shell,
     entrance = vector4Payload(house.entrance or configured.entrance),
     features = property.features,
+    interior = publicInteriorPayload(house),
     garage = publicGaragePayload(house.garage or configured.garage),
     visibility = getHouseVisibilityMode(code, house),
     status = access.status,
@@ -2074,6 +2262,8 @@ function MZHousesService.getAdminPropertyInfo(houseCode)
     shell = house.shell or configured.shell,
     entrance = vector4Payload(house.entrance or configured.entrance),
     features = property.features,
+    interior = publicInteriorPayload(house),
+    internalPoints = adminInternalSummaryPayload(house),
     garage = publicGaragePayload(house.garage or configured.garage, true),
     visibility = getHouseVisibilityMode(code, house),
     status = access.status,

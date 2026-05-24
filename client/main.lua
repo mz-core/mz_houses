@@ -122,19 +122,20 @@ function MZHouses.Notify(message, notifyType)
   end
 end
 
+local visibilityEnabled
+
 function MZHouses.GetHouse(houseCode)
   local code = trim(houseCode)
   if code == '' then
     return nil, 'invalid_house'
   end
 
-  local house = (MZHousesConfig.Houses or {})[code]
-  if type(house) == 'table' then
-    return house, nil, code
+  local visibleHouses = nil
+  if visibilityEnabled() then
+    visibleHouses = VisibleHousesCache.houses
   end
 
-  local visibleHouses = VisibleHousesCache.houses
-  if type(visibleHouses) ~= 'table' then
+  if visibilityEnabled() and type(visibleHouses) ~= 'table' then
     visibleHouses = MZHouses.RefreshVisibleHouses and MZHouses.RefreshVisibleHouses(true) or nil
   end
 
@@ -151,6 +152,11 @@ function MZHouses.GetHouse(houseCode)
     end
   end
 
+  local house = (MZHousesConfig.Houses or {})[code]
+  if type(house) == 'table' then
+    return house, nil, code
+  end
+
   return nil, 'house_not_found'
 end
 
@@ -158,7 +164,7 @@ function MZHouses.GetHouses()
   return MZHousesConfig.Houses or {}
 end
 
-local function visibilityEnabled()
+visibilityEnabled = function()
   return (MZHousesConfig.Visibility or {}).enabled == true
 end
 
@@ -285,7 +291,9 @@ function MZHouses.GetEffectiveHousePoint(house, pointName)
   end
 
   local defaults = MZHouses.GetHouseInteriorDefaults(house)
-  local point = shallowMerge(defaults and defaults[pointName] or nil, house[pointName])
+  local interior = type(house.interior) == 'table' and house.interior or {}
+  local override = type(interior[pointName]) == 'table' and interior[pointName] or house[pointName]
+  local point = shallowMerge(defaults and defaults[pointName] or nil, override)
 
   if next(point) == nil then
     return nil
@@ -328,6 +336,20 @@ end
 
 function MZHouses.GetCurrentHouse()
   return cloneTable(CurrentHouse)
+end
+
+function MZHouses.UpdateCurrentHouseData(house)
+  if CurrentHouse.inside ~= true or type(house) ~= 'table' then
+    return false
+  end
+
+  local code = trim(house.code)
+  if code == '' or trim(CurrentHouse.code) ~= code then
+    return false
+  end
+
+  CurrentHouse.data = cloneTable(house)
+  return true
 end
 
 function MZHouses.IsInsideHouse()
@@ -524,6 +546,23 @@ function MZHouses.EnterHouse(houseCode)
   CurrentHouse.inside = true
   CurrentHouse.code = code
   CurrentHouse.data = cloneTable(house)
+
+  local effectiveExit = MZHouses.GetEffectiveHouseExit(CurrentHouse.data)
+  if type(effectiveExit) ~= 'table' or not asVector3(effectiveExit.coords) then
+    local interior = getCurrentInterior()
+    local exitCoords = asVector4(interior and interior.exitCoords)
+    if exitCoords then
+      CurrentHouse.data.interior = type(CurrentHouse.data.interior) == 'table' and CurrentHouse.data.interior or {}
+      CurrentHouse.data.interior.exit = {
+        enabled = true,
+        label = 'Sair da casa',
+        coords = vector3(exitCoords.x, exitCoords.y, exitCoords.z),
+        heading = exitCoords.w,
+        relative = false
+      }
+      MZHouses.Notify(('Shell sem InteriorDefaults para saida: %s. Use /mhouse_admin para ajustar pontos internos.'):format(shellName), 'warning')
+    end
+  end
 
   MZHouses.Debug('entered_house', {
     house = code,

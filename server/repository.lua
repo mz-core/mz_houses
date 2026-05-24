@@ -204,11 +204,58 @@ local function normalizeRealestate(data)
   }
 end
 
+local function normalizeInteriorPoint(data, pointName)
+  data = type(data) == 'table' and data or {}
+  local coords = vectorToPlain(data.coords)
+  if not coords and next(data) == nil then
+    return nil
+  end
+
+  local point = {
+    enabled = data.enabled ~= false,
+    coords = coords,
+    relative = data.relative ~= false
+  }
+
+  local label = trim(data.label)
+  if label ~= '' then point.label = label end
+
+  local heading = tonumber(data.heading or data.w)
+  if heading ~= nil then point.heading = heading end
+
+  if pointName == 'stash' then
+    point.slots = tonumber(data.slots)
+    point.weight = tonumber(data.weight)
+  elseif pointName == 'wardrobe' then
+    local shopId = trim(data.shopId or data.shop_id)
+    if shopId ~= '' then point.shopId = shopId end
+    local resource = trim(data.resource)
+    if resource ~= '' then point.resource = resource end
+  end
+
+  return point
+end
+
+local function normalizeInterior(data)
+  data = type(data) == 'table' and data or {}
+  local interior = {}
+
+  for _, pointName in ipairs({ 'exit', 'stash', 'wardrobe' }) do
+    local point = normalizeInteriorPoint(data[pointName], pointName)
+    if point then
+      interior[pointName] = point
+    end
+  end
+
+  return interior
+end
+
 local function rowToHouse(row)
   if type(row) ~= 'table' then return nil end
 
   row.entrance = decodeJson(row.entrance_json, nil)
   row.garage = decodeJson(row.garage_json, nil)
+  row.interior = normalizeInterior(decodeJson(row.interior_json, nil))
   local property = normalizePropertyFields({
     category = row.category,
     subtype = row.subtype,
@@ -289,6 +336,7 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
   local garageJson = encodeJson(data.garage or {})
   local property = normalizePropertyFields(data)
   local featuresJson = encodeJson(property.features)
+  local interiorJson = encodeJson(normalizeInterior(data.interior))
   local visibility = normalizeVisibility(data.visibility)
   local listingJson = encodeJson(normalizeListing(data.listing))
   local realestateJson = encodeJson(normalizeRealestate(data.realestate))
@@ -297,9 +345,9 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
     MySQL.insert.await([[
       INSERT INTO mz_houses (
         code, label, category, subtype, owner_type, org_code, business_code,
-        type, shell, entrance_json, garage_json, features_json, visibility, listing_json, realestate_json,
+        type, shell, entrance_json, garage_json, features_json, interior_json, visibility, listing_json, realestate_json,
         status, enabled, public, owner_citizenid
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
       code,
       label,
@@ -313,6 +361,7 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
       entranceJson,
       garageJson,
       featuresJson,
+      interiorJson,
       visibility,
       listingJson,
       realestateJson,
@@ -332,12 +381,13 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
   local nextVisibility = normalizeVisibility(existing.visibility)
   local nextListingJson = encodeJson(normalizeListing(existing.listing))
   local nextRealestateJson = encodeJson(normalizeRealestate(existing.realestate))
+  local nextInteriorJson = encodeJson(normalizeInterior(existing.interior))
 
   MySQL.update.await([[
     UPDATE mz_houses
     SET label = ?, category = ?, subtype = ?, owner_type = ?, org_code = ?, business_code = ?,
         type = ?, shell = ?, entrance_json = ?, garage_json = ?, features_json = ?,
-        visibility = ?, listing_json = ?, realestate_json = ?, status = ?, enabled = ?, public = ?
+        interior_json = ?, visibility = ?, listing_json = ?, realestate_json = ?, status = ?, enabled = ?, public = ?
     WHERE code = ?
   ]], {
     label,
@@ -351,6 +401,7 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
     entranceJson,
     garageJson,
     featuresJson,
+    nextInteriorJson,
     nextVisibility,
     nextListingJson,
     nextRealestateJson,
@@ -380,9 +431,9 @@ function MZHousesRepository.createHouseFromAdmin(code, data)
   MySQL.insert.await([[
     INSERT INTO mz_houses (
       code, label, category, subtype, owner_type, org_code, business_code,
-      type, shell, entrance_json, garage_json, features_json, visibility,
+      type, shell, entrance_json, garage_json, features_json, interior_json, visibility,
       listing_json, realestate_json, status, enabled, public, owner_citizenid
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
   ]], {
     code,
     label,
@@ -396,6 +447,7 @@ function MZHousesRepository.createHouseFromAdmin(code, data)
     encodeJson(vectorToPlain(data.entrance)),
     encodeJson(data.garage or {}),
     encodeJson(property.features),
+    encodeJson(normalizeInterior(data.interior)),
     normalizeVisibility(data.visibility),
     encodeJson(normalizeListing(data.listing)),
     encodeJson(normalizeRealestate(data.realestate)),
@@ -426,7 +478,7 @@ function MZHousesRepository.updateHouseFromAdmin(code, data)
     UPDATE mz_houses
     SET label = ?, category = ?, subtype = ?, owner_type = ?, org_code = ?, business_code = ?,
         type = ?, shell = ?, entrance_json = ?, garage_json = ?, features_json = ?,
-        visibility = ?, listing_json = ?, realestate_json = ?, status = ?, enabled = ?, public = ?
+        interior_json = ?, visibility = ?, listing_json = ?, realestate_json = ?, status = ?, enabled = ?, public = ?
     WHERE code = ?
   ]], {
     label,
@@ -440,6 +492,7 @@ function MZHousesRepository.updateHouseFromAdmin(code, data)
     encodeJson(vectorToPlain(data.entrance)),
     encodeJson(data.garage or {}),
     encodeJson(property.features),
+    encodeJson(normalizeInterior(data.interior)),
     normalizeVisibility(data.visibility),
     encodeJson(normalizeListing(data.listing)),
     encodeJson(normalizeRealestate(data.realestate)),

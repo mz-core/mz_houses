@@ -46,6 +46,11 @@ MZHousesConfig.Admin = {
   garageEnable = 'mhouse_garage_enable',
   garageSlots = 'mhouse_garage_slots',
   garageMode = 'mhouse_garage_mode',
+  exitHere = 'mhouse_exit_here',
+  internalStashHere = 'mhouse_stash_here',
+  internalWardrobeHere = 'mhouse_wardrobe_here',
+  internalInfo = 'mhouse_internal_info',
+  internalReset = 'mhouse_internal_reset',
   info = 'mhouse_info'
 }
 
@@ -53,7 +58,8 @@ MZHousesConfig.AdminMenu = {
   enabled = true,
   command = 'mhouse_admin',
   ace = 'group.mz_owner',
-  useOxLib = true,
+  useMzMenu = true,
+  fallbackToOxLib = false,
   nearPropertyRadius = 25.0,
   maxNearbyResults = 10,
   debug = false
@@ -291,7 +297,67 @@ MZHousesConfig.InteriorDefaults = {
       enabled = false
     }
   },
-    container = {
+
+  apartment_low = {
+    label = 'Apartamento Simples',
+
+    exit = {
+      enabled = true,
+      coords = vector3(4.641, -6.263, 1.038),
+      heading = 358.634,
+      relative = true
+    }
+  },
+
+  house_mid = {
+    label = 'Casa Media',
+
+    exit = {
+        enabled = true,
+        label = 'Sair da casa',
+        coords = vector3(1.40506422519683, -14.30452156066894, 1.14783096313476),
+        heading = 354.291748046875,
+        relative = true
+    },
+
+    stash = {
+        enabled = true,
+        label = 'Bau da Casa',
+        coords = vector3(-1.68299233913421, -4.42769336700439, 1.15212631225585),
+        slots = 50,
+        weight = 100000,
+        relative = true
+    },
+
+    wardrobe = {
+        enabled = true,
+        label = 'Guarda-roupa',
+        coords = vector3(4.60483074188232, -8.74681091308593, 1.14658737182617),
+        relative = true
+    },
+
+  },
+
+  motel_modern = {
+    label = 'Motel Moderno',
+
+    exit = {
+      enabled = true,
+      coords = vector3(4.98, 4.35, 1.16),
+      heading = 179.79,
+      relative = true
+    },
+
+    stash = {
+      enabled = false
+    },
+
+    wardrobe = {
+      enabled = false
+    }
+  },
+
+  container = {
     label = 'Container / Base Gang',
 
     exit = {

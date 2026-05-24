@@ -217,11 +217,109 @@ local function defaultFeatures(property)
   }
 end
 
+local function interiorPointFromPayload(payload, pointName)
+  payload = type(payload) == 'table' and payload or {}
+  local point = coordsFromPayload(payload.point, false)
+  local spawn = coordsFromPayload(payload.spawnCoords, false)
+  if not point or not spawn then
+    return nil, 'invalid_interior_context'
+  end
+
+  local relative = vector3(point.x - spawn.x, point.y - spawn.y, point.z - spawn.z)
+  local out = {
+    enabled = true,
+    coords = relative,
+    relative = true
+  }
+
+  if pointName == 'exit' then
+    out.label = 'Sair da casa'
+    out.heading = tonumber((type(payload.point) == 'table' and (payload.point.heading or payload.point.w or payload.point.h)) or payload.heading) or 0.0
+  elseif pointName == 'stash' then
+    out.label = 'Bau da Casa'
+    out.slots = tonumber((MZHousesConfig.Stash or {}).defaultSlots) or 50
+    out.weight = tonumber((MZHousesConfig.Stash or {}).defaultWeight) or 100000
+  elseif pointName == 'wardrobe' then
+    out.label = 'Guarda-roupa'
+  end
+
+  return out
+end
+
+local function validateInteriorEditContext(source, payload)
+  if not isAdmin(source) then
+    return false, 'admin_required'
+  end
+
+  payload = type(payload) == 'table' and payload or {}
+  local code = trim(payload.code)
+  if code == '' then
+    return false, 'invalid_house'
+  end
+
+  if payload.inside ~= true or trim(payload.currentHouseCode) ~= code then
+    return false, 'not_inside_property'
+  end
+
+  return true, code
+end
+
 lib.callback.register('mz_houses:server:admin:checkAccess', function(source)
   return {
     ok = isAdmin(source) == true and adminEnabled(),
     error = adminEnabled() and nil or 'admin_menu_disabled'
   }
+end)
+
+lib.callback.register('mz_houses:server:admin:setInternalPoint', function(source, payload)
+  local valid, codeOrErr = validateInteriorEditContext(source, payload)
+  if not valid then
+    return { ok = false, error = codeOrErr }
+  end
+
+  payload = type(payload) == 'table' and payload or {}
+  local code = codeOrErr
+  local pointName = trim(payload.pointName)
+  if pointName ~= 'exit' and pointName ~= 'stash' and pointName ~= 'wardrobe' then
+    return { ok = false, error = 'invalid_internal_point' }
+  end
+
+  local property = MZHousesService.getAdminPropertyInfo(code)
+  if not property then
+    return { ok = false, error = 'house_not_found' }
+  end
+
+  local point, err = interiorPointFromPayload(payload, pointName)
+  if not point then
+    return { ok = false, error = err or 'invalid_interior_point' }
+  end
+
+  local interior = type(property.interior) == 'table' and property.interior or {}
+  interior[pointName] = point
+
+  local action = ('house.admin.internal.%s.set'):format(pointName)
+  local response = adminUpdate(source, code, { interior = interior }, action, {
+    point = pointName,
+    shell = trim(payload.shell),
+    coords = vector3Payload(point.coords),
+    heading = point.heading
+  }, ('Ponto interno atualizado: %s'):format(pointName))
+
+  return response
+end)
+
+lib.callback.register('mz_houses:server:admin:resetInternalPoints', function(source, payload)
+  if not isAdmin(source) then
+    return denied()
+  end
+
+  payload = type(payload) == 'table' and payload or {}
+  local code = trim(payload.code)
+  if code == '' then
+    return { ok = false, error = 'invalid_house' }
+  end
+
+  return adminUpdate(source, code, { interior = {} }, 'house.admin.internal.reset', nil, 'Pontos internos resetados para defaults do shell.')
 end)
 
 lib.callback.register('mz_houses:server:admin:listNearbyProperties', function(source, payload)
@@ -345,7 +443,10 @@ lib.callback.register('mz_houses:server:admin:setShell', function(source, payloa
     return { ok = false, error = 'invalid_shell' }
   end
 
-  return adminUpdate(source, payload.code, { shell = shell, type = 'shell' }, 'house.admin.shell.set', { shell = shell }, 'Shell atualizado.')
+  return adminUpdate(source, payload.code, { shell = shell, type = 'shell', interior = {} }, 'house.admin.shell.set', {
+    shell = shell,
+    resetInteriorOverrides = true
+  }, 'Shell atualizado. Overrides internos resetados.')
 end)
 
 lib.callback.register('mz_houses:server:admin:setCategory', function(source, payload)

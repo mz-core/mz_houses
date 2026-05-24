@@ -64,9 +64,13 @@
 - [ ] `/mhouse_info casa_admin_01` mostra resumo tecnico sem listar chaves completas.
 - [ ] Comandos de garagem admin persistem entry/spawn/store/mode/slots.
 - [ ] Cada comando admin grava action `house.admin.*` em `mz_logs`.
-- [ ] `/mhouse_admin` abre menu para admin `group.mz_owner`.
+- [ ] `/mhouse_admin` abre menu para admin `group.mz_owner` usando `mz_menu`.
 - [ ] Player sem `group.mz_owner` nao abre nem consegue usar callbacks/eventos do menu admin.
 - [ ] Menu cria imovel aqui usando posicao/heading atual.
+- [ ] Menu cria/edita shell usando select de `exports['mz_interiors']:GetShells()`.
+- [ ] Server recusa shell desabilitado/inexistente mesmo se evento/comando for chamado direto.
+- [ ] `house_mid` entra sem cair no limbo.
+- [ ] `/mint_list` mostra shells habilitados e shells desabilitados com reason.
 - [ ] Menu edita label, shell, entrada, categoria, orgCode, public, visibility e listable.
 - [ ] Menu configura garagem: enabled, entry, spawn, store, slots e mode.
 - [ ] Menu Dono/Chaves chama os fluxos seguros de owner/key existentes.
@@ -102,6 +106,12 @@
 - [ ] Com `mode = 'both'`, as acoes aparecem em `mz_logs` e `mz_house_logs`.
 - [ ] Com `mode = 'central'` e central indisponivel, `localFallback = true` grava em `mz_house_logs`.
 - [ ] Marker do bau aparece dentro da casa quando `stash.enabled = true`.
+- [ ] `/mhouse_admin` usa `mz_menu` com `event + args`; nenhum `onSelect` e enviado ao export.
+- [ ] Menu possui `Interior / Pontos Internos`.
+- [ ] Dentro do shell, admin define saida/bau/armario pelo menu.
+- [ ] `/mhouse_exit_here`, `/mhouse_stash_here`, `/mhouse_wardrobe_here`, `/mhouse_internal_info` e `/mhouse_internal_reset` funcionam como fallback admin.
+- [ ] Overrides internos persistem em `interior_json` e reaparecem apos sair/entrar.
+- [ ] Trocar shell usa `InteriorDefaults[shell]` ou exige override claro via menu admin.
 - [ ] Tecla `E` no bau chama validacao server-side.
 - [ ] Player sem owner/chave/admin nao consegue abrir bau.
 - [ ] Bau abre a UI real do `mz_inventory` usando `house_stash`.

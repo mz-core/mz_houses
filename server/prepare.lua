@@ -55,6 +55,7 @@ local statements = {
     entrance_json LONGTEXT NULL,
     garage_json LONGTEXT NULL,
     features_json LONGTEXT NULL,
+    interior_json LONGTEXT NULL,
     visibility VARCHAR(30) NOT NULL DEFAULT 'auto',
     listing_json LONGTEXT NULL,
     realestate_json LONGTEXT NULL,
@@ -148,6 +149,7 @@ local function ensureHousePropertyColumns()
   ensureColumn('mz_houses', 'org_code', '`org_code` VARCHAR(80) NULL')
   ensureColumn('mz_houses', 'business_code', '`business_code` VARCHAR(80) NULL')
   ensureColumn('mz_houses', 'features_json', '`features_json` LONGTEXT NULL')
+  ensureColumn('mz_houses', 'interior_json', '`interior_json` LONGTEXT NULL')
   ensureColumn('mz_houses', 'visibility', "`visibility` VARCHAR(30) NOT NULL DEFAULT 'auto'")
   ensureColumn('mz_houses', 'listing_json', '`listing_json` LONGTEXT NULL')
   ensureColumn('mz_houses', 'realestate_json', '`realestate_json` LONGTEXT NULL')

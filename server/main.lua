@@ -474,7 +474,10 @@ local function registerAdminCommands()
     if trim(args and args[1]) == '' or shell == '' then
       return reply(source, 'Uso: /mhouse_setshell codigo shellName')
     end
-    adminUpdate(source, args[1], { shell = shell, type = 'shell' }, 'house.admin.shell.set', { shell = shell }, 'Shell atualizado.')
+    adminUpdate(source, args[1], { shell = shell, type = 'shell', interior = {} }, 'house.admin.shell.set', {
+      shell = shell,
+      resetInteriorOverrides = true
+    }, 'Shell atualizado. Overrides internos resetados.')
   end, false)
 
   RegisterCommand(tostring(admin.setCategory or 'mhouse_setcategory'), function(source, args)
