@@ -543,6 +543,35 @@ local function openMzContext(menu)
   return ok == true and result ~= false
 end
 
+local function closeMzMenu()
+  if GetResourceState('mz_menu') == 'started' then
+    local ok = pcall(function()
+      return exports['mz_menu']:CloseMenu()
+    end)
+
+    if ok then
+      return true
+    end
+
+    ok = pcall(function()
+      return exports['mz_menu']:CloseContext()
+    end)
+
+    if ok then
+      return true
+    end
+  end
+
+  if lib and type(lib.hideContext) == 'function' then
+    pcall(function()
+      lib.hideContext(true)
+    end)
+    return true
+  end
+
+  return false
+end
+
 local function getApartmentUnits(buildingCode)
   if not lib or not lib.callback or type(lib.callback.await) ~= 'function' then
     return nil, 'callback_unavailable'
@@ -641,11 +670,13 @@ end
 
 RegisterNetEvent('mz_houses:client:apartmentUnitSelected', function(payload)
   payload = type(payload) == 'table' and payload or {}
+  closeMzMenu()
   TriggerEvent('mz_houses:client:enterHouse', payload.code)
 end)
 
 RegisterNetEvent('mz_houses:client:apartmentGarageSelected', function(payload)
   payload = type(payload) == 'table' and payload or {}
+  closeMzMenu()
   local ok, err = requestOpenHouseGarage(payload.code, payload.action or 'open')
   if not ok then
     MZHouses.Notify(('Nao foi possivel abrir a garagem: %s'):format(tostring(err or 'erro_desconhecido')), 'error')
@@ -673,6 +704,8 @@ function MZHouses.EnterHouse(houseCode)
   if tostring(house.subtype or '') == 'apartment_building' then
     return MZHouses.OpenApartmentIntercom(code)
   end
+
+  closeMzMenu()
 
   if tostring(house.type or 'shell') ~= 'shell' then
     return false, 'unsupported_house_type'
@@ -804,6 +837,8 @@ function MZHouses.OpenHouseStash(houseCode)
     return false, 'house_not_found'
   end
 
+  closeMzMenu()
+
   local ok, responseOrErr = requestOpenHouseStash(code)
   if not ok then
     return false, responseOrErr or 'stash_open_failed'
@@ -842,6 +877,8 @@ function MZHouses.OpenHouseWardrobe(houseCode)
     return false, 'house_not_found'
   end
 
+  closeMzMenu()
+
   return requestOpenHouseWardrobe(code)
 end
 
@@ -859,6 +896,8 @@ function MZHouses.OpenHouseGarage(houseCode, action)
   if type(house) == 'table' and tostring(house.subtype or '') == 'apartment_building' then
     return MZHouses.OpenApartmentGarage(code, action or 'open')
   end
+
+  closeMzMenu()
 
   return requestOpenHouseGarage(code, action or 'open')
 end
