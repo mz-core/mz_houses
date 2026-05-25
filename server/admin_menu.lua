@@ -565,8 +565,20 @@ lib.callback.register('mz_houses:server:admin:setListable', function(source, pay
 
   if value == true then
     local property = MZHousesService.getPublicPropertyInfo(code)
-    if property and (property.category == 'org' or property.ownerType == 'org') then
+    if not property then
+      return { ok = false, error = 'house_not_found' }
+    end
+
+    if property.category == 'org' or property.ownerType == 'org' then
       return { ok = false, error = 'org_property_not_listable' }
+    end
+
+    if property.category ~= 'residential' or property.ownerType ~= 'player' then
+      return { ok = false, error = 'not_residential_player_property' }
+    end
+
+    if property.subtype == 'apartment_building' then
+      return { ok = false, error = 'building_not_listable_use_unit' }
     end
   end
 

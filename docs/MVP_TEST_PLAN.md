@@ -136,6 +136,8 @@ Use este plano antes de seguir para venda, imobiliaria, org_base, business, mobi
 - [ ] `/mhouse_givekey apt_000001_102 OUTRO_CITIZENID` libera somente a unidade 102.
 - [ ] `/mhouse_admin` no predio mostra `Unidades do predio`; abrir 101/102 leva ao menu da unidade.
 - [ ] Morador de qualquer unidade ve o interfone/entrada do predio.
+- [ ] Player sem visibilidade do predio nao consegue listar unidades chamando callback direto.
+- [ ] `/mhouse_setlistable apt_building_000001 true` e negado; use uma unidade.
 - [ ] Configurar garagem no predio e confirmar que o ponto lista unidades acessiveis.
 - [ ] Abrir garagem da unidade 101 usa garageId `apt:apt_building_000001:101`.
 - [ ] Veiculos de unidades diferentes nao aparecem misturados.

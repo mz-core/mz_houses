@@ -74,6 +74,8 @@
 - [ ] `/mhouse_givekey apt_000001_102 CITIZENID` aplica chave apenas na unidade.
 - [ ] `/mhouse_admin` em um predio mostra a secao `Unidades do predio` e abre o gerenciamento de cada unidade.
 - [ ] Morador/dono/chave de qualquer unidade filha ve/interage com a entrada do predio pai.
+- [ ] Callback publico de unidades do predio retorna `not_visible` para player que nao deve ver/interagir com o predio.
+- [ ] Predio pai nao pode ser marcado `listable`; selecione uma unidade residencial/player.
 - [ ] Garagem fisica do predio lista unidades acessiveis.
 - [ ] GarageId logico da unidade usa `apt:<buildingCode>:<unitNumber>`.
 - [ ] Base org criada pelo menu gera `org_base_<org>_000001` e `canBeListed=false`.

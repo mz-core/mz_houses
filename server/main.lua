@@ -645,8 +645,20 @@ local function registerAdminCommands()
 
     if value == true then
       local property = MZHousesService.getAdminPropertyInfo(code)
-      if property and (property.category == 'org' or property.ownerType == 'org') then
+      if not property then
+        return reply(source, 'Imovel nao encontrado.')
+      end
+
+      if property.category == 'org' or property.ownerType == 'org' then
         return reply(source, 'Imovel org/base nao pode ser listable por padrao.')
+      end
+
+      if property.category ~= 'residential' or property.ownerType ~= 'player' then
+        return reply(source, 'Apenas propriedade residencial/player pode ser listable nesta fase.')
+      end
+
+      if property.subtype == 'apartment_building' then
+        return reply(source, 'Predio nao e listable como unidade comum. Selecione uma unidade.')
       end
     end
 
@@ -850,6 +862,14 @@ end)
 lib.callback.register('mz_houses:server:listApartmentUnits', function(source, payload)
   payload = type(payload) == 'table' and payload or {}
   local buildingCode = trim(payload.buildingCode or payload.houseCode or payload.code)
+  if not isHouseAdmin(source) then
+    local canSeeEntry = MZHousesService.CanSeeHouse(source, buildingCode, 'entry')
+    local canSeeGarage = MZHousesService.CanSeeHouse(source, buildingCode, 'garage')
+    if canSeeEntry ~= true and canSeeGarage ~= true then
+      return { ok = false, error = 'not_visible' }
+    end
+  end
+
   local result, err = MZHousesService.ListApartmentUnits(source, buildingCode, isHouseAdmin(source))
   if not result then
     return { ok = false, error = err or 'apartment_units_failed' }
