@@ -124,6 +124,26 @@ end
 
 local visibilityEnabled
 
+local function fetchPublicPropertyInfo(code)
+  if not lib or not lib.callback or type(lib.callback.await) ~= 'function' then
+    return nil
+  end
+
+  local ok, response = pcall(function()
+    return lib.callback.await('mz_houses:server:getPublicPropertyInfo', false, {
+      houseCode = code
+    })
+  end)
+
+  if ok and type(response) == 'table' and response.ok == true and type(response.property) == 'table' then
+    VisibleHousesCache.houses = type(VisibleHousesCache.houses) == 'table' and VisibleHousesCache.houses or {}
+    VisibleHousesCache.houses[code] = response.property
+    return response.property
+  end
+
+  return nil
+end
+
 function MZHouses.GetHouse(houseCode)
   local code = trim(houseCode)
   if code == '' then
@@ -155,6 +175,11 @@ function MZHouses.GetHouse(houseCode)
   local house = (MZHousesConfig.Houses or {})[code]
   if type(house) == 'table' then
     return house, nil, code
+  end
+
+  local fetched = fetchPublicPropertyInfo(code)
+  if type(fetched) == 'table' then
+    return fetched, nil, code
   end
 
   return nil, 'house_not_found'
@@ -386,6 +411,28 @@ local function requestHouseAccess(houseCode)
   return false, response.error or 'no_house_access'
 end
 
+local function requestEntryContext(houseCode)
+  if not lib or not lib.callback or type(lib.callback.await) ~= 'function' then
+    return nil, 'callback_unavailable'
+  end
+
+  local ok, response = pcall(function()
+    return lib.callback.await('mz_houses:server:resolveEntryContext', false, {
+      houseCode = houseCode
+    })
+  end)
+
+  if not ok or type(response) ~= 'table' then
+    return nil, 'entry_context_failed'
+  end
+
+  if response.ok ~= true then
+    return nil, response.error or response.reason or 'entry_context_failed'
+  end
+
+  return response, nil
+end
+
 local function requestOpenHouseStash(houseCode)
   if not lib or not lib.callback or type(lib.callback.await) ~= 'function' then
     return false, 'callback_unavailable'
@@ -484,6 +531,127 @@ local function requestOpenHouseGarage(houseCode, action)
   return true, response
 end
 
+local function openMzContext(menu)
+  if GetResourceState('mz_menu') ~= 'started' then
+    return false
+  end
+
+  local ok, result = pcall(function()
+    return exports['mz_menu']:OpenContext(menu)
+  end)
+
+  return ok == true and result ~= false
+end
+
+local function getApartmentUnits(buildingCode)
+  if not lib or not lib.callback or type(lib.callback.await) ~= 'function' then
+    return nil, 'callback_unavailable'
+  end
+
+  local ok, response = pcall(function()
+    return lib.callback.await('mz_houses:server:listApartmentUnits', false, {
+      buildingCode = buildingCode
+    })
+  end)
+
+  if not ok or type(response) ~= 'table' then
+    return nil, 'apartment_units_failed'
+  end
+
+  if response.ok ~= true then
+    return nil, response.error or 'apartment_units_failed'
+  end
+
+  return response.units or {}, nil, response.building
+end
+
+function MZHouses.OpenApartmentIntercom(buildingCode)
+  local units, err = getApartmentUnits(buildingCode)
+  if not units then
+    MZHouses.Notify(('Nao foi possivel abrir interfone: %s'):format(tostring(err)), 'error')
+    return false, err
+  end
+
+  local options = {}
+  for _, unit in ipairs(units) do
+    local allowed = unit.allowed == true
+    options[#options + 1] = {
+      title = ('Apartamento %s'):format(tostring(unit.unitNumber or unit.code)),
+      description = allowed and tostring(unit.label or unit.code) or ('Bloqueado: %s'):format(tostring(unit.reason or 'sem_acesso')),
+      icon = allowed and 'door-open' or 'lock',
+      disabled = not allowed,
+      event = 'mz_houses:client:apartmentUnitSelected',
+      args = { code = unit.code }
+    }
+  end
+
+  if #options == 0 then
+    MZHouses.Notify('Nenhuma unidade cadastrada neste predio.', 'error')
+    return false, 'no_units'
+  end
+
+  if not openMzContext({
+    id = ('mz_houses_apartment_intercom_%s'):format(tostring(buildingCode)),
+    title = 'Interfone',
+    options = options
+  }) then
+    MZHouses.Notify('mz_menu indisponivel para o interfone.', 'error')
+    return false, 'menu_unavailable'
+  end
+
+  return true
+end
+
+function MZHouses.OpenApartmentGarage(buildingCode, action)
+  local units, err = getApartmentUnits(buildingCode)
+  if not units then
+    MZHouses.Notify(('Nao foi possivel abrir garagem: %s'):format(tostring(err)), 'error')
+    return false, err
+  end
+
+  local options = {}
+  for _, unit in ipairs(units) do
+    local allowed = unit.allowed == true
+    options[#options + 1] = {
+      title = ('Apartamento %s'):format(tostring(unit.unitNumber or unit.code)),
+      description = allowed and 'Abrir garagem desta unidade' or ('Bloqueado: %s'):format(tostring(unit.reason or 'sem_acesso')),
+      icon = allowed and 'car' or 'lock',
+      disabled = not allowed,
+      event = 'mz_houses:client:apartmentGarageSelected',
+      args = { code = unit.code, action = action or 'open' }
+    }
+  end
+
+  if #options == 0 then
+    MZHouses.Notify('Nenhuma unidade cadastrada neste predio.', 'error')
+    return false, 'no_units'
+  end
+
+  if not openMzContext({
+    id = ('mz_houses_apartment_garage_%s'):format(tostring(buildingCode)),
+    title = 'Garagem do Predio',
+    options = options
+  }) then
+    MZHouses.Notify('mz_menu indisponivel para selecionar unidade.', 'error')
+    return false, 'menu_unavailable'
+  end
+
+  return true
+end
+
+RegisterNetEvent('mz_houses:client:apartmentUnitSelected', function(payload)
+  payload = type(payload) == 'table' and payload or {}
+  TriggerEvent('mz_houses:client:enterHouse', payload.code)
+end)
+
+RegisterNetEvent('mz_houses:client:apartmentGarageSelected', function(payload)
+  payload = type(payload) == 'table' and payload or {}
+  local ok, err = requestOpenHouseGarage(payload.code, payload.action or 'open')
+  if not ok then
+    MZHouses.Notify(('Nao foi possivel abrir a garagem: %s'):format(tostring(err or 'erro_desconhecido')), 'error')
+  end
+end)
+
 function MZHouses.EnterHouse(houseCode)
   local house, err, code = MZHouses.GetHouse(houseCode)
   if not house then
@@ -502,6 +670,10 @@ function MZHouses.EnterHouse(houseCode)
     return false, 'interiors_unavailable'
   end
 
+  if tostring(house.subtype or '') == 'apartment_building' then
+    return MZHouses.OpenApartmentIntercom(code)
+  end
+
   if tostring(house.type or 'shell') ~= 'shell' then
     return false, 'unsupported_house_type'
   end
@@ -511,9 +683,23 @@ function MZHouses.EnterHouse(houseCode)
     return false, 'missing_shell'
   end
 
+  local entryContext = nil
   local entrance = asVector4(house.entrance)
+  if tostring(house.subtype or '') == 'apartment_unit' or not entrance then
+    local context, contextErr = requestEntryContext(code)
+    if not context then
+      return false, contextErr or 'invalid_entrance'
+    end
+
+    entryContext = context
+    if type(context.property) == 'table' then
+      house = context.property
+    end
+    entrance = asVector4(context.entrance)
+  end
+
   if not entrance then
-    return false, 'invalid_entrance'
+    return false, tostring(house.subtype or '') == 'apartment_unit' and 'invalid_building_entrance' or 'invalid_entrance'
   end
 
   local allowed, accessOrErr = requestHouseAccess(code)
@@ -529,6 +715,8 @@ function MZHouses.EnterHouse(houseCode)
     metadata = {
       houseCode = code,
       houseLabel = house.label or code,
+      buildingCode = entryContext and entryContext.building and entryContext.building.code or nil,
+      unitNumber = house.unitNumber,
       status = house.status or 'debug',
       accessReason = type(accessOrErr) == 'table' and accessOrErr.reason or nil
     }
@@ -665,6 +853,11 @@ function MZHouses.OpenHouseGarage(houseCode, action)
 
   if code == '' then
     return false, 'house_not_found'
+  end
+
+  local house = MZHouses.GetHouse(code)
+  if type(house) == 'table' and tostring(house.subtype or '') == 'apartment_building' then
+    return MZHouses.OpenApartmentGarage(code, action or 'open')
   end
 
   return requestOpenHouseGarage(code, action or 'open')

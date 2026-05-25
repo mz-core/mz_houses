@@ -111,11 +111,34 @@ Use este plano antes de seguir para venda, imobiliaria, org_base, business, mobi
 ## 6.2. Admin menu e shells
 
 - [ ] `/mhouse_admin` abre para admin `group.mz_owner`.
-- [ ] Criar imovel aqui mostra o campo `Shell / Interior` como lista/select.
+- [ ] `Criar imovel -> Casa comum` nao pede code manual e gera `house_000001`.
+- [ ] Criar imovel mostra o campo `Shell / Interior` como lista/select.
 - [ ] A lista mostra apenas shells selecionaveis do `mz_interiors`.
 - [ ] Trocar shell para `house_mid` salva, reseta overrides internos e nao joga o player no limbo ao entrar.
 - [ ] Trocar para shell sem defaults completos avisa/permite definir pontos internos pelo menu.
 - [ ] Comando/evento direto com shell desabilitado retorna erro e nao persiste.
+
+## 6.3. Apartamentos
+
+- [ ] `/mhouse_admin -> Criar imovel -> Predio de apartamentos`.
+- [ ] Informar andares `2`, unidades por andar `2`, shell `apartment_low`.
+- [ ] Confirmar code do predio `apt_building_000001`.
+- [ ] Confirmar unidades `apt_000001_101`, `apt_000001_102`, `apt_000001_201`, `apt_000001_202`.
+- [ ] `/mhouse_building_info apt_building_000001` mostra quantidade de unidades.
+- [ ] Interagir na entrada do predio abre interfone via `mz_menu`.
+- [ ] Player sem acesso ve unidades bloqueadas.
+- [ ] Selecionar uma unidade sem `entrance` propria nao retorna `invalid entrance`; a entrada e resolvida pelo predio pai.
+- [ ] Se o predio pai estiver sem entrada, a unidade retorna `invalid_building_entrance`.
+- [ ] `/mhouse_setowner apt_000001_101 SEU_CITIZENID`.
+- [ ] Player com owner entra na unidade 101 pelo interfone.
+- [ ] `/mhouse_setowner apt_building_000001 SEU_CITIZENID` e negado: predio nao recebe dono de moradia.
+- [ ] `/mhouse_givekey apt_building_000001 SEU_CITIZENID` e negado: chaves devem ser por unidade.
+- [ ] `/mhouse_givekey apt_000001_102 OUTRO_CITIZENID` libera somente a unidade 102.
+- [ ] `/mhouse_admin` no predio mostra `Unidades do predio`; abrir 101/102 leva ao menu da unidade.
+- [ ] Morador de qualquer unidade ve o interfone/entrada do predio.
+- [ ] Configurar garagem no predio e confirmar que o ponto lista unidades acessiveis.
+- [ ] Abrir garagem da unidade 101 usa garageId `apt:apt_building_000001:101`.
+- [ ] Veiculos de unidades diferentes nao aparecem misturados.
 
 ## 7. Bau da casa
 

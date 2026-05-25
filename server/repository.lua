@@ -22,6 +22,13 @@ local function normalizeOptionalCode(value)
   return code
 end
 
+local function normalizeUnitNumber(value)
+  local unit = tostring(value or ''):lower():gsub('^%s+', ''):gsub('%s+$', '')
+  unit = unit:gsub('[^%w_%-]', '_'):sub(1, 30)
+  if unit == '' then return nil end
+  return unit
+end
+
 local function normalizeCategory(value)
   local allowed = {
     residential = true,
@@ -112,6 +119,8 @@ local function normalizePropertyFields(data)
     category = normalizeCategory(data.category or defaults.category),
     subtype = normalizeSubtype(data.subtype or defaults.subtype),
     ownerType = normalizeOwnerType(data.ownerType or data.owner_type or defaults.ownerType),
+    parentCode = normalizeOptionalCode(data.parentCode or data.parent_code),
+    unitNumber = normalizeUnitNumber(data.unitNumber or data.unit_number),
     orgCode = normalizeOptionalCode(data.orgCode or data.org_code or defaults.orgCode),
     businessCode = normalizeOptionalCode(data.businessCode or data.business_code or defaults.businessCode),
     features = normalizeFeatures(data.features, defaults.features)
@@ -204,6 +213,21 @@ local function normalizeRealestate(data)
   }
 end
 
+local function normalizeBuilding(data)
+  data = type(data) == 'table' and data or {}
+
+  return {
+    floors = tonumber(data.floors),
+    unitsPerFloor = tonumber(data.unitsPerFloor or data.units_per_floor),
+    firstFloor = tonumber(data.firstFloor or data.first_floor) or 1,
+    unitPattern = trim(data.unitPattern or data.unit_pattern) ~= '' and trim(data.unitPattern or data.unit_pattern) or nil,
+    sharedEntrance = data.sharedEntrance ~= false,
+    sharedGarage = data.sharedGarage == true,
+    intercom = data.intercom ~= false,
+    defaultUnitShell = trim(data.defaultUnitShell or data.default_unit_shell) ~= '' and trim(data.defaultUnitShell or data.default_unit_shell) or nil
+  }
+end
+
 local function normalizeInteriorPoint(data, pointName)
   data = type(data) == 'table' and data or {}
   local coords = vectorToPlain(data.coords)
@@ -260,6 +284,8 @@ local function rowToHouse(row)
     category = row.category,
     subtype = row.subtype,
     ownerType = row.owner_type,
+    parentCode = row.parent_code,
+    unitNumber = row.unit_number,
     orgCode = row.org_code,
     businessCode = row.business_code,
     features = decodeJson(row.features_json, nil)
@@ -268,6 +294,10 @@ local function rowToHouse(row)
   row.subtype = property.subtype
   row.owner_type = property.ownerType
   row.ownerType = property.ownerType
+  row.parent_code = property.parentCode
+  row.parentCode = property.parentCode
+  row.unit_number = property.unitNumber
+  row.unitNumber = property.unitNumber
   row.org_code = property.orgCode
   row.orgCode = property.orgCode
   row.business_code = property.businessCode
@@ -276,6 +306,7 @@ local function rowToHouse(row)
   row.visibility = normalizeVisibility(row.visibility)
   row.listing = normalizeListing(decodeJson(row.listing_json, nil))
   row.realestate = normalizeRealestate(decodeJson(row.realestate_json, nil))
+  row.building = normalizeBuilding(decodeJson(row.building_json, nil))
   row.enabled = databaseBool(row.enabled)
   row.public = databaseBool(row.public)
   return row
@@ -340,22 +371,26 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
   local visibility = normalizeVisibility(data.visibility)
   local listingJson = encodeJson(normalizeListing(data.listing))
   local realestateJson = encodeJson(normalizeRealestate(data.realestate))
+  local buildingJson = encodeJson(normalizeBuilding(data.building))
 
   if not existing then
     MySQL.insert.await([[
       INSERT INTO mz_houses (
-        code, label, category, subtype, owner_type, org_code, business_code,
-        type, shell, entrance_json, garage_json, features_json, interior_json, visibility, listing_json, realestate_json,
+        code, label, category, subtype, owner_type, parent_code, unit_number, org_code, business_code,
+        building_json, type, shell, entrance_json, garage_json, features_json, interior_json, visibility, listing_json, realestate_json,
         status, enabled, public, owner_citizenid
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
       code,
       label,
       property.category,
       property.subtype,
       property.ownerType,
+      property.parentCode,
+      property.unitNumber,
       property.orgCode,
       property.businessCode,
+      buildingJson,
       houseType,
       shell,
       entranceJson,
@@ -382,11 +417,12 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
   local nextListingJson = encodeJson(normalizeListing(existing.listing))
   local nextRealestateJson = encodeJson(normalizeRealestate(existing.realestate))
   local nextInteriorJson = encodeJson(normalizeInterior(existing.interior))
+  local nextBuildingJson = encodeJson(normalizeBuilding(existing.building))
 
   MySQL.update.await([[
     UPDATE mz_houses
-    SET label = ?, category = ?, subtype = ?, owner_type = ?, org_code = ?, business_code = ?,
-        type = ?, shell = ?, entrance_json = ?, garage_json = ?, features_json = ?,
+    SET label = ?, category = ?, subtype = ?, owner_type = ?, parent_code = ?, unit_number = ?, org_code = ?, business_code = ?,
+        building_json = ?, type = ?, shell = ?, entrance_json = ?, garage_json = ?, features_json = ?,
         interior_json = ?, visibility = ?, listing_json = ?, realestate_json = ?, status = ?, enabled = ?, public = ?
     WHERE code = ?
   ]], {
@@ -394,8 +430,11 @@ function MZHousesRepository.upsertHouseFromConfig(code, data)
     property.category,
     property.subtype,
     property.ownerType,
+    property.parentCode,
+    property.unitNumber,
     property.orgCode,
     property.businessCode,
+    nextBuildingJson,
     houseType,
     shell,
     entranceJson,
@@ -430,18 +469,21 @@ function MZHousesRepository.createHouseFromAdmin(code, data)
   local property = normalizePropertyFields(data)
   MySQL.insert.await([[
     INSERT INTO mz_houses (
-      code, label, category, subtype, owner_type, org_code, business_code,
-      type, shell, entrance_json, garage_json, features_json, interior_json, visibility,
+      code, label, category, subtype, owner_type, parent_code, unit_number, org_code, business_code,
+      building_json, type, shell, entrance_json, garage_json, features_json, interior_json, visibility,
       listing_json, realestate_json, status, enabled, public, owner_citizenid
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
   ]], {
     code,
     label,
     property.category,
     property.subtype,
     property.ownerType,
+    property.parentCode,
+    property.unitNumber,
     property.orgCode,
     property.businessCode,
+    encodeJson(normalizeBuilding(data.building)),
     trim(data.type) ~= '' and trim(data.type) or 'shell',
     trim(data.shell) ~= '' and trim(data.shell) or nil,
     encodeJson(vectorToPlain(data.entrance)),
@@ -476,8 +518,8 @@ function MZHousesRepository.updateHouseFromAdmin(code, data)
   local property = normalizePropertyFields(data)
   local affected = MySQL.update.await([[
     UPDATE mz_houses
-    SET label = ?, category = ?, subtype = ?, owner_type = ?, org_code = ?, business_code = ?,
-        type = ?, shell = ?, entrance_json = ?, garage_json = ?, features_json = ?,
+    SET label = ?, category = ?, subtype = ?, owner_type = ?, parent_code = ?, unit_number = ?, org_code = ?, business_code = ?,
+        building_json = ?, type = ?, shell = ?, entrance_json = ?, garage_json = ?, features_json = ?,
         interior_json = ?, visibility = ?, listing_json = ?, realestate_json = ?, status = ?, enabled = ?, public = ?
     WHERE code = ?
   ]], {
@@ -485,8 +527,11 @@ function MZHousesRepository.updateHouseFromAdmin(code, data)
     property.category,
     property.subtype,
     property.ownerType,
+    property.parentCode,
+    property.unitNumber,
     property.orgCode,
     property.businessCode,
+    encodeJson(normalizeBuilding(data.building)),
     trim(data.type) ~= '' and trim(data.type) or 'shell',
     trim(data.shell) ~= '' and trim(data.shell) or nil,
     encodeJson(vectorToPlain(data.entrance)),

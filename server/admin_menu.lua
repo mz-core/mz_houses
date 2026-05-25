@@ -400,6 +400,71 @@ lib.callback.register('mz_houses:server:admin:createProperty', function(source, 
   return okWithProperty(result.houseCode, source, 'Imovel criado.')
 end)
 
+lib.callback.register('mz_houses:server:admin:createStructuredProperty', function(source, payload)
+  if not isAdmin(source) then
+    return denied()
+  end
+
+  payload = type(payload) == 'table' and payload or {}
+  payload.entrance = coordsFromPayload(payload.entrance or payload, true)
+
+  local ok, result = MZHousesService.createStructuredProperty(source, payload)
+  if not ok then
+    return { ok = false, error = result or 'create_failed' }
+  end
+
+  refreshVisibility('house_admin_structured_create')
+  return okWithProperty(result.houseCode, source, 'Imovel criado com code automatico.')
+end)
+
+lib.callback.register('mz_houses:server:admin:listApartmentBuildings', function(source)
+  if not isAdmin(source) then
+    return denied()
+  end
+
+  local out = {}
+  for _, property in ipairs(MZHousesService.ListProperties({ category = 'residential', subtype = 'apartment_building' }) or {}) do
+    out[#out + 1] = {
+      code = property.code,
+      label = property.label or property.code,
+      status = property.status,
+      enabled = property.enabled == true
+    }
+  end
+
+  return { ok = true, buildings = out }
+end)
+
+lib.callback.register('mz_houses:server:admin:listBuildingUnits', function(source, payload)
+  if not isAdmin(source) then
+    return denied()
+  end
+
+  payload = type(payload) == 'table' and payload or {}
+  local code = trim(payload.code or payload.buildingCode)
+  local result, err = MZHousesService.ListApartmentUnits(source, code, true)
+  if not result then
+    return { ok = false, error = err or 'units_failed' }
+  end
+
+  local units = {}
+  for _, unit in ipairs(result.units or {}) do
+    local adminInfo = MZHousesService.getAdminPropertyInfo(unit.code) or unit
+    units[#units + 1] = {
+      code = adminInfo.code or unit.code,
+      label = adminInfo.label or unit.label,
+      unitNumber = adminInfo.unitNumber or unit.unitNumber,
+      shell = adminInfo.shell or unit.shell,
+      owner = adminInfo.owner,
+      keyCount = tonumber(adminInfo.keyCount) or 0,
+      enabled = adminInfo.enabled == true,
+      status = adminInfo.status
+    }
+  end
+
+  return { ok = true, building = result.building, units = units }
+end)
+
 lib.callback.register('mz_houses:server:admin:updateBasic', function(source, payload)
   payload = type(payload) == 'table' and payload or {}
   local code = trim(payload.code)

@@ -51,6 +51,7 @@ local notify
 local openContext
 local inputDialog
 local alertDialog
+local callAdmin
 
 -- IMPORTANTE:
 -- Quando o menu e enviado para outro resource via export (`mz_menu`), funcoes Lua
@@ -404,10 +405,41 @@ local function shellInputRow(label, defaultShell)
   }
 end
 
-local function callAdmin(name, payload)
+local function boolSelectRow(label, defaultValue)
+  return {
+    type = 'select',
+    label = label,
+    required = true,
+    default = defaultValue == true and 'true' or 'false',
+    options = {
+      { value = 'true', label = 'Sim' },
+      { value = 'false', label = 'Nao' }
+    }
+  }
+end
+
+local function inputBool(value)
+  return tostring(value or '') == 'true'
+end
+
+local function apartmentBuildingOptions()
+  local response = callAdmin('mz_houses:server:admin:listApartmentBuildings', {})
+  local options = {}
+  if response.ok == true and type(response.buildings) == 'table' then
+    for _, building in ipairs(response.buildings) do
+      options[#options + 1] = {
+        value = tostring(building.code),
+        label = ('%s - %s'):format(tostring(building.code), tostring(building.label or ''))
+      }
+    end
+  end
+  return options
+end
+
+callAdmin = function(name, payload)
   if not lib or not lib.callback or type(lib.callback.await) ~= 'function' then
     return { ok = false, error = 'ox_lib_callback_unavailable' }
-  end
+end
 
   local ok, response = pcall(function()
     return lib.callback.await(name, false, payload or {})
@@ -491,10 +523,15 @@ end
 
 local function propertyDescription(property)
   property = type(property) == 'table' and property or {}
-  return ('%s/%s/%s | public=%s | visibility=%s | garage=%s'):format(
+  local relation = ''
+  if trim(property.parentCode) ~= '' then
+    relation = (' | parent=%s unit=%s'):format(tostring(property.parentCode), tostring(property.unitNumber or 'nil'))
+  end
+  return ('%s/%s/%s%s | public=%s | visibility=%s | garage=%s'):format(
     tostring(property.category or 'nil'),
     tostring(property.subtype or 'nil'),
     tostring(property.ownerType or 'nil'),
+    relation,
     boolText(property.public == true),
     tostring(property.visibility or 'auto'),
     garageSummary(property)
@@ -513,6 +550,7 @@ local function showInfo(property)
     ('Label: %s'):format(tostring(property.label or 'nil')),
     ('Status: %s / enabled=%s'):format(tostring(property.status or 'nil'), boolText(property.enabled == true)),
     ('Category: %s / %s / %s'):format(tostring(property.category or 'nil'), tostring(property.subtype or 'nil'), tostring(property.ownerType or 'nil')),
+    ('Parent/Unit: %s / %s'):format(tostring(property.parentCode or 'nil'), tostring(property.unitNumber or 'nil')),
     ('OrgCode: %s'):format(tostring(property.orgCode or 'nil')),
     ('Shell: %s'):format(tostring(property.shell or 'nil')),
     ('Visibility: %s'):format(tostring(property.visibility or 'auto')),
@@ -543,10 +581,10 @@ local function openMainMenu()
     title = 'Gerenciar Imoveis',
     options = {
       {
-        title = 'Criar imovel aqui',
+        title = 'Criar imovel',
         icon = 'plus',
         onSelect = function()
-          MZHousesAdminMenu.CreateHere()
+          MZHousesAdminMenu.OpenCreateMenu()
         end
       },
       {
@@ -624,6 +662,15 @@ function MZHousesAdminMenu_OpenProperty(code)
         end
       },
       {
+        title = 'Unidades do predio',
+        description = property.subtype == 'apartment_building' and 'Gerenciar apartamentos vinculados' or 'Disponivel apenas para predios',
+        icon = 'building',
+        disabled = property.subtype ~= 'apartment_building',
+        onSelect = function()
+          MZHousesAdminMenu.OpenBuildingUnits(property.code)
+        end
+      },
+      {
         title = 'Garagem',
         icon = 'car',
         onSelect = function()
@@ -691,8 +738,66 @@ function MZHousesAdminMenu.Open()
   openMainMenu()
 end
 
+function MZHousesAdminMenu.OpenCreateMenu()
+  openContext({
+    id = 'mz_houses_admin_create',
+    title = 'Criar imovel',
+    menu = 'mz_houses_admin_main',
+    options = {
+      {
+        title = 'Casa comum',
+        description = 'Code automatico: house_000001',
+        icon = 'home',
+        onSelect = function()
+          MZHousesAdminMenu.CreateHouseHere()
+        end
+      },
+      {
+        title = 'Predio de apartamentos',
+        description = 'Cria entrada/interfone e unidades opcionais',
+        icon = 'building-2',
+        onSelect = function()
+          MZHousesAdminMenu.CreateApartmentBuildingHere()
+        end
+      },
+      {
+        title = 'Unidade em predio existente',
+        description = 'Code automatico: apt_000001_101',
+        icon = 'door-open',
+        onSelect = function()
+          MZHousesAdminMenu.CreateApartmentUnit()
+        end
+      },
+      {
+        title = 'Base de organizacao/fac/gang',
+        description = 'Code automatico: org_base_org_000001',
+        icon = 'shield',
+        onSelect = function()
+          MZHousesAdminMenu.CreateOrgBaseHere()
+        end
+      },
+      {
+        title = 'Business/Governo',
+        description = 'Preparacao tecnica, sem venda',
+        icon = 'briefcase-business',
+        onSelect = function()
+          MZHousesAdminMenu.CreateBusinessHere()
+        end
+      },
+      {
+        title = 'Avancado: criar por code manual',
+        description = 'Fallback tecnico/debug',
+        icon = 'terminal',
+        onSelect = function()
+          MZHousesAdminMenu.CreateHere()
+        end
+      }
+    }
+  })
+end
+
 function MZHousesAdminMenu.CreateHere()
-  local input = inputDialog('Criar imovel aqui', {
+  local input = inputDialog('Criar imovel avancado', {
     { type = 'input', label = 'Codigo', required = true, placeholder = 'casa_mirror_01' },
     { type = 'input', label = 'Label', required = true, placeholder = 'Casa Mirror Park 01' },
     shellInputRow('Shell / Interior', 'shell_test')
@@ -707,6 +812,127 @@ function MZHousesAdminMenu.CreateHere()
     entrance = currentPoint(true)
   })
 
+  handleResponse(response, response.property and response.property.code or nil)
+end
+
+function MZHousesAdminMenu.CreateHouseHere()
+  local input = inputDialog('Criar casa comum', {
+    { type = 'input', label = 'Label', required = false, placeholder = 'Casa Mirror Park 01' },
+    shellInputRow('Shell / Interior', 'shell_test'),
+    boolSelectRow('Listable futuro realestate', true),
+    boolSelectRow('Garagem ativa', false)
+  })
+  if not input then return end
+
+  local response = callAdmin('mz_houses:server:admin:createStructuredProperty', {
+    kind = 'house',
+    label = trim(input[1]),
+    shell = trim(input[2]),
+    canBeListed = inputBool(input[3]),
+    garageEnabled = inputBool(input[4]),
+    entrance = currentPoint(true)
+  })
+  handleResponse(response, response.property and response.property.code or nil)
+end
+
+function MZHousesAdminMenu.CreateApartmentBuildingHere()
+  local input = inputDialog('Criar predio de apartamentos', {
+    { type = 'input', label = 'Nome visual', required = false, placeholder = 'Edificio Mirror Park' },
+    { type = 'number', label = 'Andares', required = true, default = 2, min = 1 },
+    { type = 'number', label = 'Unidades por andar', required = true, default = 2, min = 1 },
+    { type = 'number', label = 'Primeiro andar', required = true, default = 1, min = 0 },
+    shellInputRow('Shell padrao das unidades', 'apartment_low'),
+    boolSelectRow('Criar unidades automaticamente', true),
+    boolSelectRow('Garagem compartilhada ativa', false)
+  })
+  if not input then return end
+
+  local response = callAdmin('mz_houses:server:admin:createStructuredProperty', {
+    kind = 'apartment_building',
+    label = trim(input[1]),
+    floors = tonumber(input[2]) or 1,
+    unitsPerFloor = tonumber(input[3]) or 1,
+    firstFloor = tonumber(input[4]) or 1,
+    shell = trim(input[5]),
+    createUnits = inputBool(input[6]),
+    garageEnabled = inputBool(input[7]),
+    entrance = currentPoint(true)
+  })
+  handleResponse(response, response.property and response.property.code or nil)
+end
+
+function MZHousesAdminMenu.CreateApartmentUnit()
+  local buildings = apartmentBuildingOptions()
+  if #buildings == 0 then
+    notify('Nenhum predio de apartamentos encontrado.', 'error')
+    return
+  end
+
+  local input = inputDialog('Criar unidade de apartamento', {
+    { type = 'select', label = 'Predio', required = true, options = buildings, default = buildings[1].value },
+    { type = 'input', label = 'Numero da unidade', required = true, placeholder = '305' },
+    { type = 'input', label = 'Label', required = false, placeholder = 'Apartamento 305' },
+    shellInputRow('Shell / Interior', 'apartment_low')
+  })
+  if not input then return end
+
+  local response = callAdmin('mz_houses:server:admin:createStructuredProperty', {
+    kind = 'apartment_unit',
+    parentCode = trim(input[1]),
+    unitNumber = trim(input[2]),
+    label = trim(input[3]),
+    shell = trim(input[4]),
+    entrance = currentPoint(true)
+  })
+  handleResponse(response, response.property and response.property.code or nil)
+end
+
+function MZHousesAdminMenu.CreateOrgBaseHere()
+  local input = inputDialog('Criar base org/fac/gang', {
+    { type = 'input', label = 'OrgCode', required = true, placeholder = 'ballas' },
+    { type = 'select', label = 'Subtipo', required = true, default = 'gang_base', options = {
+      { value = 'gang_base', label = 'gang_base' },
+      { value = 'fac_base', label = 'fac_base' },
+      { value = 'org_base', label = 'org_base' }
+    } },
+    { type = 'input', label = 'Label', required = false, placeholder = 'Base Ballas' },
+    shellInputRow('Shell / Interior', 'container'),
+    boolSelectRow('Garagem ativa', false)
+  })
+  if not input then return end
+
+  local response = callAdmin('mz_houses:server:admin:createStructuredProperty', {
+    kind = trim(input[2]),
+    orgCode = trim(input[1]),
+    label = trim(input[3]),
+    shell = trim(input[4]),
+    garageEnabled = inputBool(input[5]),
+    entrance = currentPoint(true)
+  })
+  handleResponse(response, response.property and response.property.code or nil)
+end
+
+function MZHousesAdminMenu.CreateBusinessHere()
+  local input = inputDialog('Criar business/governo', {
+    { type = 'select', label = 'Tipo', required = true, default = 'business', options = {
+      { value = 'business', label = 'business' },
+      { value = 'government', label = 'government' }
+    } },
+    { type = 'input', label = 'Subtipo', required = true, default = 'office' },
+    { type = 'input', label = 'Label', required = false },
+    shellInputRow('Shell / Interior', 'shell_test'),
+    boolSelectRow('Garagem ativa', false)
+  })
+  if not input then return end
+
+  local response = callAdmin('mz_houses:server:admin:createStructuredProperty', {
+    kind = trim(input[1]),
+    subtype = trim(input[2]),
+    label = trim(input[3]),
+    shell = trim(input[4]),
+    garageEnabled = inputBool(input[5]),
+    entrance = currentPoint(true)
+  })
   handleResponse(response, response.property and response.property.code or nil)
 end
 
@@ -1060,9 +1286,67 @@ function MZHousesAdminMenu.OpenGarage(code)
   })
 end
 
+function MZHousesAdminMenu.OpenBuildingUnits(code)
+  local response = callAdmin('mz_houses:server:admin:getPropertyInfo', { code = code })
+  if response.ok ~= true or not response.property or response.property.subtype ~= 'apartment_building' then
+    notify('Este imovel nao e um predio de apartamentos.', 'error')
+    return
+  end
+
+  local unitsResponse = callAdmin('mz_houses:server:admin:listBuildingUnits', { code = code })
+  if unitsResponse.ok ~= true then
+    notify(('Erro: %s'):format(tostring(unitsResponse.error or 'units_failed')), 'error')
+    return
+  end
+
+  local options = {
+    {
+      title = 'Criar nova unidade',
+      icon = 'plus',
+      onSelect = function()
+        MZHousesAdminMenu.CreateApartmentUnit()
+      end
+    }
+  }
+
+  for _, unit in ipairs(unitsResponse.units or {}) do
+    options[#options + 1] = {
+      title = ('Apartamento %s'):format(tostring(unit.unitNumber or unit.code)),
+      description = ('%s | owner=%s | keys=%s | shell=%s'):format(
+        tostring(unit.code),
+        unit.owner and 'sim' or 'nao',
+        tostring(unit.keyCount or 0),
+        tostring(unit.shell or 'nil')
+      ),
+      icon = 'door-open',
+      onSelect = function()
+        MZHousesAdminMenu.OpenProperty(unit.code)
+      end
+    }
+  end
+
+  openContext({
+    id = 'mz_houses_admin_building_units',
+    title = 'Unidades do predio',
+    menu = 'mz_houses_admin_property',
+    options = options
+  })
+end
+
 function MZHousesAdminMenu.OpenOwnerKeys(code)
   local property = getProperty(code)
   if not property then return end
+
+  if property.subtype == 'apartment_building' then
+    alertDialog({
+      header = 'Dono / Chaves',
+      content = 'Predio nao recebe dono/chaves de moradia. Gerencie uma unidade, exemplo apt_000001_101.',
+      centered = true,
+      cancel = false
+    })
+    MZHousesAdminMenu.OpenBuildingUnits(code)
+    return
+  end
 
   local keysDescription = 'nenhuma'
   if type(property.keys) == 'table' and #property.keys > 0 then

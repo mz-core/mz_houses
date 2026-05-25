@@ -94,7 +94,10 @@ local function registerMzInteractPoints()
             key = tonumber(interaction.key) or 38,
             text = {
               enabled = true,
-              label = ('[E] Entrar - %s'):format(tostring(house.label or code))
+              label = ('[E] %s - %s'):format(
+                tostring(house.subtype) == 'apartment_building' and 'Interfone' or 'Entrar',
+                tostring(house.label or code)
+              )
             },
             marker = {
               enabled = true,
@@ -252,7 +255,9 @@ local function runFallbackMarkerLoop()
                   if textConfig.enabled ~= false then
                     drawText3d(
                       vector3(coords.x, coords.y, coords.z + (tonumber(textConfig.offsetZ) or 0.45)),
-                      ('[E] Entrar - %s'):format(tostring(house.label or code)),
+                      tostring(house.subtype) == 'apartment_building'
+                        and ('[E] Interfone - %s'):format(tostring(house.label or code))
+                        or ('[E] Entrar - %s'):format(tostring(house.label or code)),
                       tonumber(textConfig.scale) or 0.32
                     )
                   end

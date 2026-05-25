@@ -321,6 +321,42 @@ local function runHouseGarageExportTest(source, houseCode)
   return reply(src, ('Teste retornou erro: %s'):format(tostring(result)))
 end
 
+local function currentServerPoint(source)
+  local src = tonumber(source) or 0
+  if src <= 0 then
+    return nil
+  end
+
+  local ped = GetPlayerPed(src)
+  if not ped or ped == 0 then
+    return nil
+  end
+
+  local coords = GetEntityCoords(ped)
+  local heading = GetEntityHeading(ped)
+  return vector4(coords.x, coords.y, coords.z, heading)
+end
+
+local function createStructuredFromCommand(source, payload)
+  if not isHouseAdmin(source) then
+    return reply(source, 'Voce nao tem permissao para usar este comando.')
+  end
+
+  payload = type(payload) == 'table' and payload or {}
+  payload.entrance = currentServerPoint(source)
+  if not payload.entrance then
+    return reply(source, 'Nao foi possivel ler sua posicao.')
+  end
+
+  local ok, result = MZHousesService.createStructuredProperty(source, payload)
+  if not ok then
+    return reply(source, ('Erro: %s'):format(tostring(result)))
+  end
+
+  refreshVisibilityTargets('structured_create_command')
+  reply(source, ('Imovel criado: %s'):format(tostring(result.houseCode)))
+end
+
 local function registerAdminCommands()
   local admin = MZHousesConfig.Admin or {}
 
@@ -409,12 +445,14 @@ local function registerAdminCommands()
       return reply(source, ('Erro: %s'):format(tostring(result)))
     end
 
-    reply(source, ('Casa=%s accessMode=%s category=%s subtype=%s ownerType=%s orgCode=%s businessCode=%s features=%s enterAccess=%s featuresAccess=%s public=%s owner=%s key_count=%d currentAccess=%s reason=%s canBeListed=%s listReason=%s database=%s'):format(
+    reply(source, ('Casa=%s accessMode=%s category=%s subtype=%s ownerType=%s parentCode=%s unitNumber=%s orgCode=%s businessCode=%s features=%s enterAccess=%s featuresAccess=%s public=%s owner=%s key_count=%d currentAccess=%s reason=%s canBeListed=%s listReason=%s database=%s'):format(
       result.houseCode,
       tostring(result.accessMode or 'player'),
       tostring(result.category or 'residential'),
       tostring(result.subtype or 'house'),
       tostring(result.ownerType or 'player'),
+      tostring(result.parentCode or 'nil'),
+      tostring(result.unitNumber or 'nil'),
       tostring(result.orgCode or 'nil'),
       tostring(result.businessCode or 'nil'),
       featuresToText(result.features),
@@ -447,6 +485,83 @@ local function registerAdminCommands()
 
     refreshVisibilityTargets('reload')
     reply(source, ('Casas recarregadas. total=%d'):format(MZHousesService.countHouses()))
+  end, false)
+
+  RegisterCommand('mhouse_create_auto', function(source, args)
+    local kind = trim(args and args[1])
+    if kind == '' then
+      return reply(source, 'Uso: /mhouse_create_auto house|org_base|business [label/subtype]')
+    end
+
+    createStructuredFromCommand(source, {
+      kind = kind,
+      label = joinArgs(args, 2),
+      subtype = trim(args and args[2])
+    })
+  end, false)
+
+  RegisterCommand('mhouse_create_building', function(source, args)
+    createStructuredFromCommand(source, {
+      kind = 'apartment_building',
+      label = joinArgs(args, 4),
+      floors = tonumber(args and args[1]) or 1,
+      unitsPerFloor = tonumber(args and args[2]) or 1,
+      shell = trim(args and args[3]) ~= '' and trim(args and args[3]) or 'apartment_low',
+      createUnits = true
+    })
+  end, false)
+
+  RegisterCommand('mhouse_create_unit', function(source, args)
+    local buildingCode = trim(args and args[1])
+    local unitNumber = trim(args and args[2])
+    if buildingCode == '' or unitNumber == '' then
+      return reply(source, 'Uso: /mhouse_create_unit apt_building_000001 305 [shell]')
+    end
+
+    createStructuredFromCommand(source, {
+      kind = 'apartment_unit',
+      parentCode = buildingCode,
+      unitNumber = unitNumber,
+      shell = trim(args and args[3]) ~= '' and trim(args and args[3]) or 'apartment_low'
+    })
+  end, false)
+
+  RegisterCommand('mhouse_list_units', function(source, args)
+    if not isHouseAdmin(source) then
+      return reply(source, 'Voce nao tem permissao para usar este comando.')
+    end
+
+    local buildingCode = trim(args and args[1])
+    local result, err = MZHousesService.ListApartmentUnits(source, buildingCode, true)
+    if not result then
+      return reply(source, ('Erro: %s'):format(tostring(err)))
+    end
+
+    local names = {}
+    for _, unit in ipairs(result.units or {}) do
+      names[#names + 1] = ('%s(%s)'):format(tostring(unit.unitNumber or '?'), tostring(unit.code or '?'))
+    end
+    reply(source, ('Unidades %s: %s'):format(buildingCode, #names > 0 and table.concat(names, ', ') or 'nenhuma'))
+  end, false)
+
+  RegisterCommand('mhouse_building_info', function(source, args)
+    if not isHouseAdmin(source) then
+      return reply(source, 'Voce nao tem permissao para usar este comando.')
+    end
+
+    local code = trim(args and args[1])
+    local property = MZHousesService.getAdminPropertyInfo(code)
+    if not property then
+      return reply(source, 'Predio nao encontrado.')
+    end
+
+    local result = MZHousesService.ListApartmentUnits(source, code, true)
+    reply(source, ('Predio=%s label=%s units=%d garage=%s'):format(
+      tostring(property.code),
+      tostring(property.label),
+      type(result) == 'table' and type(result.units) == 'table' and #result.units or 0,
+      tostring(type(property.garage) == 'table' and property.garage.enabled == true)
+    ))
   end, false)
 
   RegisterCommand(tostring(admin.archive or 'mhouse_archive'), function(source, args)
@@ -613,7 +728,26 @@ local function registerAdminCommands()
     local property = MZHousesService.getAdminPropertyInfo(code) or {}
     local garage = type(property.garage) == 'table' and property.garage or {}
     local entrance = type(property.entrance) == 'table' and property.entrance or {}
-    reply(source, ('Info casa=%s label=%s enabled=%s status=%s category=%s subtype=%s ownerType=%s orgCode=%s shell=%s visibility=%s public=%s canBeListed=%s reason=%s owner=%s garage=%s/%s/%s coords=%.2f,%.2f,%.2f'):format(
+    if property.subtype == 'apartment_building' then
+      local result = MZHousesService.ListApartmentUnits(source, code, true)
+      local unitCount = type(result) == 'table' and type(result.units) == 'table' and #result.units or 0
+      return reply(source, ('Info predio=%s label=%s enabled=%s status=%s units=%d interfone=true garage=%s/%s/%s coords=%.2f,%.2f,%.2f use=/mhouse_list_units %s'):format(
+        code,
+        tostring(property.label or 'nil'),
+        tostring(property.enabled == true),
+        tostring(property.status or 'nil'),
+        unitCount,
+        tostring(garage.enabled == true),
+        tostring(garage.mode or 'nil'),
+        tostring(garage.slots or 'nil'),
+        tonumber(entrance.x) or 0.0,
+        tonumber(entrance.y) or 0.0,
+        tonumber(entrance.z) or 0.0,
+        code
+      ))
+    end
+
+    reply(source, ('Info casa=%s label=%s enabled=%s status=%s category=%s subtype=%s ownerType=%s parentCode=%s unitNumber=%s orgCode=%s shell=%s visibility=%s public=%s canBeListed=%s reason=%s owner=%s garage=%s/%s/%s coords=%.2f,%.2f,%.2f'):format(
       code,
       tostring(property.label or 'nil'),
       tostring(property.enabled == true),
@@ -621,6 +755,8 @@ local function registerAdminCommands()
       tostring(property.category or 'nil'),
       tostring(property.subtype or 'nil'),
       tostring(property.ownerType or 'nil'),
+      tostring(property.parentCode or 'nil'),
+      tostring(property.unitNumber or 'nil'),
       tostring(access.orgCode or 'nil'),
       tostring(property.shell or 'nil'),
       tostring(property.visibility or 'auto'),
@@ -711,6 +847,36 @@ lib.callback.register('mz_houses:server:listProperties', function(source, filter
   }
 end)
 
+lib.callback.register('mz_houses:server:listApartmentUnits', function(source, payload)
+  payload = type(payload) == 'table' and payload or {}
+  local buildingCode = trim(payload.buildingCode or payload.houseCode or payload.code)
+  local result, err = MZHousesService.ListApartmentUnits(source, buildingCode, isHouseAdmin(source))
+  if not result then
+    return { ok = false, error = err or 'apartment_units_failed' }
+  end
+
+  MZHousesService.log('house.apartment.intercom.open', buildingCode, source, nil, {
+    unitCount = type(result.units) == 'table' and #result.units or 0
+  })
+
+  return {
+    ok = true,
+    building = result.building,
+    units = result.units
+  }
+end)
+
+lib.callback.register('mz_houses:server:resolveEntryContext', function(source, payload)
+  payload = type(payload) == 'table' and payload or {}
+  local houseCode = trim(payload.houseCode or payload.code)
+  local result, err = MZHousesService.ResolveEntryContext(source, houseCode, isHouseAdmin(source))
+  if not result then
+    return { ok = false, error = err or 'entry_context_failed' }
+  end
+
+  return result
+end)
+
 lib.callback.register('mz_houses:server:canPlayerAccessProperty', function(source, payload)
   local houseCode = type(payload) == 'table' and payload.houseCode or payload
   local ok, result = MZHousesService.canEnterHouse(source, houseCode, isHouseAdmin(source))
@@ -758,6 +924,16 @@ lib.callback.register('mz_houses:server:canEnterHouse', function(source, payload
   MZHousesService.log('house.open', result and result.houseCode or trim(houseCode), source, nil, {
     reason = result and result.reason or 'allowed'
   })
+
+  local openedCode = result and result.houseCode or trim(houseCode)
+  local property = MZHousesService.getPublicPropertyInfo(openedCode)
+  if property and property.subtype == 'apartment_unit' then
+    MZHousesService.log('house.apartment.unit.enter', openedCode, source, nil, {
+      buildingCode = property.parentCode,
+      unitNumber = property.unitNumber,
+      reason = result and result.reason or 'allowed'
+    })
+  end
 
   return {
     ok = true,

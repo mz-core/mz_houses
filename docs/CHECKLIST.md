@@ -57,6 +57,26 @@
 - [ ] Exports de mutacao de owner/chaves com ator sem `group.mz_owner` retornam `admin_required`.
 - [ ] Exports de mutacao de owner/chaves com admin funcionam e disparam refresh de visibilidade.
 - [ ] `/mhouse_create casa_admin_01 Casa Admin 01` cria imovel tecnico como admin.
+- [ ] `/mhouse_admin -> Criar imovel -> Casa comum` gera code `house_000001`.
+- [ ] `/mhouse_admin -> Criar imovel -> Predio de apartamentos` gera `apt_building_000001`.
+- [ ] Predio com unidades automaticas gera `apt_000001_101`, `apt_000001_102`, etc.
+- [ ] `/mhouse_create_building 2 2 apartment_low` cria predio + unidades como fallback admin.
+- [ ] `/mhouse_create_unit apt_building_000001 305 apartment_low` cria unidade vinculada.
+- [ ] `/mhouse_list_units apt_building_000001` lista unidades.
+- [ ] Entrada do predio abre interfone via `mz_menu`, nao tenta entrar em shell do predio.
+- [ ] Unidade sem owner/chave aparece bloqueada no interfone.
+- [ ] Unidade com owner/chave/admin entra usando shell proprio.
+- [ ] Unidade `apartment_unit` entra pelo interfone usando a entrada do predio pai, sem exigir `entrance` propria.
+- [ ] Unidade orfa ou predio sem entrada retorna erro claro (`invalid_parent_building` ou `invalid_building_entrance`), nao `invalid entrance` generico.
+- [ ] `/mhouse_setowner apt_building_000001 CITIZENID` nega com `predio_nao_recebe_dono_use_unidade`.
+- [ ] `/mhouse_givekey apt_building_000001 CITIZENID` nega e orienta selecionar uma unidade.
+- [ ] `/mhouse_setowner apt_000001_101 CITIZENID` aplica dono apenas na unidade.
+- [ ] `/mhouse_givekey apt_000001_102 CITIZENID` aplica chave apenas na unidade.
+- [ ] `/mhouse_admin` em um predio mostra a secao `Unidades do predio` e abre o gerenciamento de cada unidade.
+- [ ] Morador/dono/chave de qualquer unidade filha ve/interage com a entrada do predio pai.
+- [ ] Garagem fisica do predio lista unidades acessiveis.
+- [ ] GarageId logico da unidade usa `apt:<buildingCode>:<unitNumber>`.
+- [ ] Base org criada pelo menu gera `org_base_<org>_000001` e `canBeListed=false`.
 - [ ] Player sem `group.mz_owner` nao consegue usar comandos admin de cadastro.
 - [ ] Novo imovel nasce `public=false`, `visibility=restricted`, `status=draft`, sem dono.
 - [ ] `/mhouse_setentrance`, `/mhouse_setshell`, `/mhouse_setcategory`, `/mhouse_setpublic`, `/mhouse_setlistable` persistem.

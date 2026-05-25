@@ -637,6 +637,11 @@ Esses comandos criam/editam o cadastro tecnico do imovel. Eles exigem `group.mz_
 
 ```txt
 /mhouse_create codigo Label do Imovel
+/mhouse_create_auto house|org_base|business [label/subtype]
+/mhouse_create_building andares unidades_por_andar shell
+/mhouse_create_unit apt_building_000001 305 [shell]
+/mhouse_list_units apt_building_000001
+/mhouse_building_info apt_building_000001
 /mhouse_archive codigo
 /mhouse_enable codigo
 /mhouse_disable codigo
@@ -657,7 +662,21 @@ Esses comandos criam/editam o cadastro tecnico do imovel. Eles exigem `group.mz_
 /mhouse_info codigo
 ```
 
-Fluxo exemplo:
+O fluxo normal recomendado usa code automatico pelo menu. `/mhouse_create` fica
+como modo avancado/debug quando voce realmente quiser informar o `code`
+manualmente.
+
+Codes automaticos:
+
+```txt
+Casa comum: house_000001
+Predio: apt_building_000001
+Unidade: apt_000001_101
+Base org: org_base_ballas_000001
+Business: business_office_000001
+```
+
+Fluxo tecnico manual legado:
 
 ```txt
 /mhouse_create casa_mirror_01 Casa Mirror Park 01
@@ -689,7 +708,13 @@ Fluxo recomendado:
 
 ```txt
 /mhouse_admin
-Criar imovel aqui
+Criar imovel
+Casa comum
+Predio de apartamentos
+Unidade em predio existente
+Base de organizacao/fac/gang
+Business/Governo
+Avancado: criar por code manual
 Editar imovel criado
 Entrada / Interior -> Definir entrada aqui
 Entrada / Interior -> Alterar shell pela lista do mz_interiors
@@ -726,6 +751,46 @@ ate serem calibrados. Se uma shell nao tiver pontos internos completos em
 `MZHousesConfig.InteriorDefaults`, entre no imovel e use
 `Interior / Pontos Internos` para definir saida, bau e armario como override da
 propriedade.
+
+### Apartamentos
+
+Apartamento e modelado em duas camadas:
+
+- Predio: `category='residential'`, `subtype='apartment_building'`,
+  `ownerType='server'`. Ele possui entrada/interfone e pode ter garagem fisica
+  compartilhada.
+- Unidade: `category='residential'`, `subtype='apartment_unit'`,
+  `ownerType='player'`, `parentCode=<predio>` e `unitNumber=<numero>`. Ela tem
+  dono/chaves/shell proprios.
+
+Ao interagir com a entrada do predio, o `mz_houses` abre um interfone simples via
+`mz_menu` listando as unidades. Sem owner/chave/admin, a unidade aparece
+bloqueada. Com acesso, a entrada usa o fluxo normal da unidade.
+
+Unidade nao possui entrada externa propria. Ao entrar em `apt_000001_101`, o
+server resolve `parentCode`, valida que o pai e `apartment_building` e usa a
+entrada do predio como contexto externo do `mz_interiors`. Se o predio pai nao
+tiver entrada, o erro correto e `invalid_building_entrance`.
+
+Prédio nao recebe dono/chaves de moradia comum. Use sempre a unidade:
+
+```txt
+/mhouse_setowner apt_000001_101 CITIZENID
+/mhouse_givekey apt_000001_101 CITIZENID
+```
+
+Se tentar setar dono/chave em `apt_building_000001`, o server nega e orienta a
+usar uma unidade.
+
+Na garagem do predio, o ponto fisico e compartilhado, mas o garage id logico e
+separado por unidade:
+
+```txt
+apt:apt_building_000001:101
+apt:apt_building_000001:102
+```
+
+Isso evita misturar veiculos de unidades diferentes.
 
 `/mhouse_access casa_teste_01` mostra tambem o modelo estrutural:
 

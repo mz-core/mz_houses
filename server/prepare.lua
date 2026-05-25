@@ -48,8 +48,11 @@ local statements = {
     category VARCHAR(40) NOT NULL DEFAULT 'residential',
     subtype VARCHAR(40) NOT NULL DEFAULT 'house',
     owner_type VARCHAR(40) NOT NULL DEFAULT 'player',
+    parent_code VARCHAR(80) NULL,
+    unit_number VARCHAR(30) NULL,
     org_code VARCHAR(80) NULL,
     business_code VARCHAR(80) NULL,
+    building_json LONGTEXT NULL,
     type VARCHAR(30) NOT NULL DEFAULT 'shell',
     shell VARCHAR(80) NULL,
     entrance_json LONGTEXT NULL,
@@ -70,6 +73,8 @@ local statements = {
     KEY idx_mz_houses_owner (owner_citizenid),
     KEY idx_mz_houses_category (category),
     KEY idx_mz_houses_owner_type (owner_type),
+    KEY idx_mz_houses_parent_code (parent_code),
+    KEY idx_mz_houses_unit_number (unit_number),
     KEY idx_mz_houses_org_code (org_code)
   )]],
 
@@ -146,8 +151,11 @@ local function ensureHousePropertyColumns()
   ensureColumn('mz_houses', 'category', "`category` VARCHAR(40) NOT NULL DEFAULT 'residential'")
   ensureColumn('mz_houses', 'subtype', "`subtype` VARCHAR(40) NOT NULL DEFAULT 'house'")
   ensureColumn('mz_houses', 'owner_type', "`owner_type` VARCHAR(40) NOT NULL DEFAULT 'player'")
+  ensureColumn('mz_houses', 'parent_code', '`parent_code` VARCHAR(80) NULL')
+  ensureColumn('mz_houses', 'unit_number', '`unit_number` VARCHAR(30) NULL')
   ensureColumn('mz_houses', 'org_code', '`org_code` VARCHAR(80) NULL')
   ensureColumn('mz_houses', 'business_code', '`business_code` VARCHAR(80) NULL')
+  ensureColumn('mz_houses', 'building_json', '`building_json` LONGTEXT NULL')
   ensureColumn('mz_houses', 'features_json', '`features_json` LONGTEXT NULL')
   ensureColumn('mz_houses', 'interior_json', '`interior_json` LONGTEXT NULL')
   ensureColumn('mz_houses', 'visibility', "`visibility` VARCHAR(30) NOT NULL DEFAULT 'auto'")
@@ -156,6 +164,8 @@ local function ensureHousePropertyColumns()
 
   ensureIndex('mz_houses', 'idx_mz_houses_category', '(`category`)')
   ensureIndex('mz_houses', 'idx_mz_houses_owner_type', '(`owner_type`)')
+  ensureIndex('mz_houses', 'idx_mz_houses_parent_code', '(`parent_code`)')
+  ensureIndex('mz_houses', 'idx_mz_houses_unit_number', '(`unit_number`)')
   ensureIndex('mz_houses', 'idx_mz_houses_org_code', '(`org_code`)')
 end
 
