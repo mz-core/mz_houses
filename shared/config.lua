@@ -1,6 +1,35 @@
 MZHousesConfig = MZHousesConfig or {}
 
 MZHousesConfig.Debug = false
+-- Temporario durante a validacao runtime da Fase 4. Registra somente estagios,
+-- code/source, transactionId, status e motivo canonico; nunca saldo/citizenid.
+MZHousesConfig.CommerceDebug = false
+
+MZHousesConfig.Tax = {
+  enabled = true,
+  debug = false,
+  command = 'iptu',
+  defaultIntervalDays = 7,
+  defaultGracePeriodDays = 3,
+  payAheadDays = 3,
+  processingIntervalSeconds = 3600,
+  batchSize = 100,
+  noticeCooldownSeconds = 600,
+  historyLimit = 20
+}
+
+MZHousesConfig.PlayerPanel = {
+  enabled = true,
+  command = 'house',
+  aliases = { 'houses' },
+  nearbyPlayerDistance = 3.0,
+  maxKeysPerProperty = 10,
+  rateLimitMs = 1000
+}
+
+-- Todas as sessoes de uma mesma casa precisam usar a mesma origem local.
+-- O isolamento entre propriedades e feito pelo routing bucket server-side.
+MZHousesConfig.InteriorSpawnBase = vector3(0.0, 0.0, -100.0)
 
 MZHousesConfig.Commands = {
   enabled = true,
@@ -21,6 +50,7 @@ MZHousesConfig.Commands = {
 MZHousesConfig.Admin = {
   requireAce = true,
   ace = 'group.mz_owner',
+  MaxInteriorPointOffset = 100.0,
 
   setOwner = 'mhouse_setowner',
   clearOwner = 'mhouse_clearowner',
@@ -56,7 +86,8 @@ MZHousesConfig.Admin = {
 
 MZHousesConfig.AdminMenu = {
   enabled = true,
-  command = 'mhouse_admin',
+  command = 'mzhouses',
+  aliases = { 'mhouse_admin' },
   ace = 'group.mz_owner',
   useMzMenu = true,
   fallbackToOxLib = false,
@@ -67,7 +98,8 @@ MZHousesConfig.AdminMenu = {
 
 MZHousesConfig.Database = {
   enabled = true,
-  syncConfigOnStart = true,
+  -- Registros administrativos no banco sao a unica fonte oficial.
+  syncConfigOnStart = false,
   syncPublicFromConfig = false,
   configCanSetOwnerOnFirstInsert = true
 }
@@ -90,7 +122,7 @@ MZHousesConfig.Visibility = {
   -- Admin sempre ve tudo para debug.
   adminSeesAll = true,
 
-  -- public=true significa entrada publica, nao venda.
+  -- public=true significa visivel; acesso continua owner/chave/admin.
   showPublicResidential = true,
 
   -- Casa residencial privada/comprada aparece so para owner/key/admin.
@@ -135,6 +167,11 @@ MZHousesConfig.Interaction = {
   fallbackMarkers = true,
   distance = 2.0,
   markerDistance = 15.0,
+  enterKey = 38,
+  doorKey = 47,
+  doorKeyLabel = 'G',
+
+  -- Compatibilidade com configuracoes anteriores.
   key = 38,
 
   marker = {
@@ -150,6 +187,17 @@ MZHousesConfig.Interaction = {
     offsetZ = 0.45,
     scale = 0.32
   }
+}
+
+MZHousesConfig.DoorAnimation = {
+  enabled = true,
+  dict = 'anim@mp_player_intmenu@key_fob@',
+  clip = 'fob_click',
+  duration = 900,
+  triggerAt = 500,
+  flag = 48,
+  loadTimeoutMs = 2000,
+  cooldownMs = 1000
 }
 
 MZHousesConfig.Stash = {
@@ -445,7 +493,7 @@ MZHousesConfig.Houses = {
 
   garage = {
     enabled = true,
-    label = 'Garagem da Casa',
+    label = 'Garagem',
     mode = 'private',
     slots = 2,
 
@@ -602,3 +650,8 @@ base_ballas = {
   --   }
   -- }
 }
+
+-- O cadastro antigo acima permanece somente como referencia de calibracao no
+-- arquivo historico. Nao e carregado nem sincronizado: propriedades reais sao
+-- criadas pela staff e persistidas no banco.
+MZHousesConfig.Houses = {}

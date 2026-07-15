@@ -1,6 +1,98 @@
+if type(MZHousesCommerce) ~= 'table'
+    or type(MZHousesCommerce.purchase) ~= 'function' then
+  error('[mz_houses] MZHousesCommerce.purchase não foi carregado. Verifique commerce.lua e fxmanifest.')
+end
+if type(MZHousesCommerce.configureSale) ~= 'function'
+    or type(MZHousesCommerce.recoverInterruptedTransactions) ~= 'function' then
+  error('[mz_houses] API pública de MZHousesCommerce incompleta. Verifique o startup de commerce.lua.')
+end
+if type(MZHousesApartments) ~= 'table'
+    or type(MZHousesApartments.validateIntercomPurchaseContext) ~= 'function' then
+  error('[mz_houses] API pública de MZHousesApartments incompleta. Verifique apartments.lua e fxmanifest.')
+end
+if type(MZHousesTax) ~= 'table'
+    or type(MZHousesTax.pay) ~= 'function'
+    or type(MZHousesTax.processBatch) ~= 'function'
+    or type(MZHousesTax.getStatus) ~= 'function'
+    or type(MZHousesTax.listForOwner) ~= 'function'
+    or type(MZHousesTax.configure) ~= 'function'
+    or type(MZHousesTax.recoverInterruptedPayments) ~= 'function'
+    or type(MZHousesTax.notifyOwner) ~= 'function' then
+  error('[mz_houses] API publica de MZHousesTax incompleta. Verifique tax.lua e fxmanifest.')
+end
+
 local function trim(value)
   return tostring(value or ''):gsub('^%s+', ''):gsub('%s+$', '')
 end
+
+-- Instancias pertencem ao mz_houses: mz_interiors cria somente o shell local.
+-- O bucket e compartilhado por todos os moradores da mesma propriedade e
+-- diferente entre propriedades.
+local HouseSessions = {}
+local HouseBuckets = {}
+local NextHouseBucket = 5000
+local SensitiveRate = {}
+
+local function allowSensitive(src, action, limit, windowSeconds)
+  local key = ('%s:%s'):format(tonumber(src) or 0, action)
+  local now = os.time()
+  local state = SensitiveRate[key]
+  if not state or now - state.startedAt >= windowSeconds then
+    SensitiveRate[key] = { startedAt = now, count = 1 }
+    return true
+  end
+  state.count = state.count + 1
+  return state.count <= limit
+end
+
+local function houseBucket(code)
+  if not HouseBuckets[code] then
+    HouseBuckets[code] = NextHouseBucket
+    NextHouseBucket = NextHouseBucket + 1
+  end
+  return HouseBuckets[code]
+end
+
+local function clearHouseSession(src)
+  src = tonumber(src)
+  if not src then return end
+  HouseSessions[src] = nil
+  if GetPlayerName(src) then
+    local player = Player(src)
+    local state = player and player.state or nil
+    if state then state:set('mzHouseCode', nil, true) end
+
+    -- Preview e casa sao mutuamente exclusivos. A guarda evita retirar um
+    -- player de um preview valido caso um cleanup atrasado de casa seja recebido.
+    if not state or trim(state.mzHousePreview) == '' then
+      SetPlayerRoutingBucket(src, 0)
+    end
+  end
+end
+
+local function nearCoords(src, point, maxDistance)
+  local ped = GetPlayerPed(src)
+  if not ped or ped <= 0 or not point then return false end
+  local coords = GetEntityCoords(ped)
+  local dx, dy, dz = coords.x - point.x, coords.y - point.y, coords.z - point.z
+  return (dx * dx + dy * dy + dz * dz) <= ((maxDistance or 6.0) ^ 2)
+end
+
+AddEventHandler('mz_houses:server:propertyAccessChanged', function(code, reason)
+  code = trim(code)
+  local preserveOccupants = reason == 'owner_key_revoked'
+  for src, session in pairs(HouseSessions) do
+    if session.code == code and preserveOccupants ~= true then
+      local ace = trim(((MZHousesConfig or {}).Admin or {}).ace)
+      local admin = ace ~= '' and IsPlayerAceAllowed(src, ace) == true
+      local allowed = MZHousesService and MZHousesService.canEnterHouse(src, code, admin)
+      if allowed ~= true or reason == 'house.admin.shell.set' or reason == 'house.admin.archive' or reason == 'house.admin.disable' then
+        TriggerClientEvent('mz_houses:client:forceExit', src, reason or 'access_changed')
+        clearHouseSession(src)
+      end
+    end
+  end
+end)
 
 local function debugLog(message, data)
   if MZHousesConfig.Debug ~= true then
@@ -393,13 +485,13 @@ local function registerAdminCommands()
       return reply(source, 'Voce nao tem permissao para usar este comando.')
     end
 
-    local ok, result = MZHousesService.giveHouseKey(args and args[1], args and args[2], source)
+    local ok, result = MZHousesService.giveHouseKey(args and args[1], args and args[2], source, args and args[3])
     if not ok then
       return reply(source, ('Erro: %s'):format(tostring(result)))
     end
 
     refreshVisibilityTargets('key_given')
-    reply(source, ('Chave entregue: casa=%s citizenid=%s'):format(result.houseCode, result.citizenid))
+    reply(source, ('Chave entregue: casa=%s citizenid=%s role=%s'):format(result.houseCode, result.citizenid, result.role))
   end, false)
 
   RegisterCommand(tostring(admin.removeKey or 'mhouse_removekey'), function(source, args)
@@ -430,7 +522,10 @@ local function registerAdminCommands()
       result.houseCode,
       tostring(result.public == true),
       tostring(result.owner or 'nil'),
-      #result.keys > 0 and table.concat(result.keys, ', ') or 'nenhuma',
+      #result.keys > 0 and (function()
+        local parts = {}; for _, key in ipairs(result.keys) do parts[#parts + 1] = ('%s:%s'):format(key.citizenid, key.role) end
+        return table.concat(parts, ', ')
+      end)() or 'nenhuma',
       tostring(result.database == true)
     ))
   end, false)
@@ -862,6 +957,16 @@ end)
 lib.callback.register('mz_houses:server:listApartmentUnits', function(source, payload)
   payload = type(payload) == 'table' and payload or {}
   local buildingCode = trim(payload.buildingCode or payload.houseCode or payload.code)
+  local contextType = trim(payload.context)
+  if not allowSensitive(source, 'apartment_units', 10, 10) then
+    return { ok = false, error = 'rate_limited' }
+  end
+  if contextType == 'intercom' then
+    local contextOk, contextErr = MZHousesApartments.validateIntercomContext(
+      source, buildingCode, isHouseAdmin(source)
+    )
+    if not contextOk then return { ok = false, error = contextErr or 'intercom_unavailable' } end
+  end
   if not isHouseAdmin(source) then
     local canSeeEntry = MZHousesService.CanSeeHouse(source, buildingCode, 'entry')
     local canSeeGarage = MZHousesService.CanSeeHouse(source, buildingCode, 'garage')
@@ -962,9 +1067,409 @@ lib.callback.register('mz_houses:server:canEnterHouse', function(source, payload
   }
 end)
 
-lib.callback.register('mz_houses:server:openHouseStash', function(source, payload)
+lib.callback.register('mz_houses:server:beginEnterHouse', function(source, payload)
+  if not allowSensitive(source, 'enter', 5, 10) then return { ok = false, error = 'rate_limited' } end
+  payload = type(payload) == 'table' and payload or {}
+  local code = trim(payload.houseCode or payload.code)
+  if HouseSessions[source] then return { ok = false, error = 'already_inside_house' } end
+  local player = Player(source)
+  local state = player and player.state or nil
+  if state and trim(state.mzHousePreview) ~= '' then
+    return { ok = false, error = 'preview_active' }
+  end
+
+  local allowed, access = MZHousesService.canEnterHouse(source, code, isHouseAdmin(source))
+  if not allowed then return { ok = false, error = access or 'no_house_access' } end
+
+  local context, contextErr = MZHousesService.ResolveEntryContext(source, code, isHouseAdmin(source))
+  if not context or context.ok ~= true then
+    return { ok = false, error = contextErr or (context and context.reason) or 'invalid_entry' }
+  end
+  if not nearCoords(source, context.entrance, 7.5) then
+    MZHousesService.log('house.enter.denied', code, source, nil, { reason = 'too_far_from_entrance' })
+    return { ok = false, error = 'too_far_from_entrance' }
+  end
+
+  local bucket = houseBucket(code)
+  local entrySpawn, entrySpawnErr = MZHousesService.getEntrySpawnConfig(code)
+  if not entrySpawn then return { ok = false, error = entrySpawnErr or 'invalid_entry_spawn' } end
+  local accessReason = type(access) == 'table' and access.reason or access
+  local isGuest = accessReason == 'public_unlocked'
+  if isGuest then
+    -- Uma porta aberta não transforma owner/chave/gang/job autorizados em
+    -- guest. Guest é somente quem depende exclusivamente do unlocked.
+    local inherited = MZHousesService.revalidateInheritedHouseAccess(source, code, isHouseAdmin(source))
+    if inherited == true then isGuest = false end
+  end
+  HouseSessions[source] = {
+    code = code, bucket = bucket, enteredAt = os.time(), confirmed = false,
+    accessReason = accessReason, isGuest = isGuest
+  }
+  SetPlayerRoutingBucket(source, bucket)
+  if player and player.state then player.state:set('mzHouseCode', code, true) end
+  return {
+    ok = true,
+    houseCode = code,
+    bucket = bucket,
+    reason = accessReason,
+    entrySpawn = entrySpawn
+  }
+end)
+
+lib.callback.register('mz_houses:server:confirmEnterHouse', function(source, payload)
+  payload = type(payload) == 'table' and payload or {}
+  local session = HouseSessions[source]
+  if not session or session.code ~= trim(payload.houseCode or payload.code) then
+    clearHouseSession(source)
+    return { ok = false, error = 'invalid_house_session' }
+  end
+  session.confirmed = true
+  session.confirmedAt = os.time()
+  return { ok = true }
+end)
+
+CreateThread(function()
+  while true do
+    Wait(5000)
+    local now = os.time()
+    for src, session in pairs(HouseSessions) do
+      if session.confirmed ~= true and now - (session.enteredAt or now) > 20 then
+        clearHouseSession(src)
+      end
+    end
+  end
+end)
+
+lib.callback.register('mz_houses:server:leaveHouse', function(source)
+  clearHouseSession(source)
+  return { ok = true }
+end)
+
+RegisterNetEvent('mz_houses:server:abortEnterHouse', function()
+  clearHouseSession(source)
+end)
+
+AddEventHandler('playerDropped', function()
+  HouseSessions[source] = nil
+  local prefix = ('%s:'):format(tonumber(source) or 0)
+  for key in pairs(SensitiveRate) do
+    if key:sub(1, #prefix) == prefix then SensitiveRate[key] = nil end
+  end
+end)
+
+AddEventHandler('onResourceStop', function(resource)
+  if resource ~= GetCurrentResourceName() and resource ~= 'mz_interiors' then return end
+  for src in pairs(HouseSessions) do clearHouseSession(src) end
+end)
+
+local function nearPropertyDoor(source, code)
+  local session = HouseSessions[source]
+  if session and session.code == code then return true end
+  local context = MZHousesService.ResolveEntryContext(source, code, isHouseAdmin(source))
+  return type(context) == 'table' and nearCoords(source, context.entrance, 7.5)
+end
+
+local function confirmedInteriorFeatureSession(source, houseCode)
+  local code = trim(houseCode)
+  local session = HouseSessions[source]
+  if not session or session.code ~= code then return nil, 'not_inside_property' end
+  if session.confirmed ~= true then return nil, 'house_session_not_confirmed' end
+  return {
+    code = code,
+    confirmed = true,
+    kind = 'interior',
+    isGuest = session.isGuest == true
+  }
+end
+
+local function garageFeatureSession(source, houseCode, action)
+  local code = trim(houseCode)
+  action = trim(action):lower()
+  if action ~= 'open' and action ~= 'store' then return nil, 'invalid_garage_action' end
+
+  local current = HouseSessions[source]
+  if current then
+    if current.code ~= code then return nil, 'wrong_property_session' end
+    if current.confirmed ~= true then return nil, 'house_session_not_confirmed' end
+    return {
+      code = code,
+      confirmed = true,
+      kind = 'interior',
+      isGuest = current.isGuest == true
+    }
+  end
+
+  local player = Player(source)
+  local state = player and player.state or nil
+  if state and trim(state.mzHousePreview) ~= '' then return nil, 'preview_active' end
+
+  local garage, garageErr = MZHousesService.getHouseGarageConfig(code)
+  if not garage then return nil, garageErr or 'garage_disabled' end
+  local point = action == 'store' and garage.store or garage.entry
+  local radius = action == 'store' and garage.storeRadius or garage.entryRadius
+  if not nearCoords(source, point, math.max(tonumber(radius) or 2.0, 2.0) + 1.5) then
+    return nil, 'too_far_from_garage'
+  end
+  return {
+    code = code,
+    confirmed = true,
+    kind = 'external_garage',
+    isGuest = false
+  }
+end
+
+lib.callback.register('mz_houses:server:getFeatureContext', function(source, payload)
+  if not allowSensitive(source, 'feature_context', 20, 10) then return { ok = false, error = 'rate_limited' } end
   local houseCode = type(payload) == 'table' and payload.houseCode or payload
-  local ok, result, detail = MZHousesService.openHouseStash(source, houseCode, isHouseAdmin(source))
+  local session, sessionErr = confirmedInteriorFeatureSession(source, houseCode)
+  if not session then return { ok = false, error = sessionErr } end
+  session.silent = true
+
+  local result = {}
+  for _, featureName in ipairs({ 'stash', 'wardrobe', 'garage' }) do
+    local allowed = MZHousesService.CanAccessPropertyFeature(
+      source,
+      session.code,
+      featureName,
+      session,
+      isHouseAdmin(source)
+    )
+    result[featureName] = allowed == true
+  end
+  return { ok = true, houseCode = session.code, features = result }
+end)
+
+lib.callback.register('mz_houses:server:getDoorContext', function(source, payload)
+  payload = type(payload) == 'table' and payload or {}
+  local code = trim(payload.houseCode or payload.code)
+  if code == '' or not nearPropertyDoor(source, code) then return { ok = false, error = 'too_far_from_entrance' } end
+  local door, doorErr = MZHousesService.getDoorState(code)
+  if not door then return { ok = false, error = doorErr or 'house_not_found' } end
+  local allowed, control = MZHousesService.canControlDoor(source, code, isHouseAdmin(source))
+  return { ok = true, houseCode = code, state = door.state, canControl = allowed == true, controlReason = allowed and control.reason or nil }
+end)
+
+lib.callback.register('mz_houses:server:listMyPropertyTaxes', function(source)
+  if not allowSensitive(source, 'tax_list', 10, 10) then return { ok = false, error = 'rate_limited' } end
+  local taxes, err = MZHousesTax.listForOwner(source)
+  if not taxes then return { ok = false, error = err or 'tax_list_failed' } end
+  return { ok = true, taxes = taxes }
+end)
+
+lib.callback.register('mz_houses:server:getPropertyTaxStatus', function(source, payload)
+  if not allowSensitive(source, 'tax_status', 10, 10) then return { ok = false, error = 'rate_limited' } end
+  payload = type(payload) == 'table' and payload or {}
+  local state, err = MZHousesTax.getStatus(source, payload.houseCode or payload.code, isHouseAdmin(source), true)
+  if not state then return { ok = false, error = err or 'tax_status_failed' } end
+  return { ok = true, tax = state }
+end)
+
+lib.callback.register('mz_houses:server:payPropertyTax', function(source, payload)
+  if not allowSensitive(source, 'tax_pay', 3, 10) then return { ok = false, reason = 'rate_limited', message = 'Aguarde antes de tentar novamente.' } end
+  payload = type(payload) == 'table' and payload or {}
+  local ok, result = MZHousesTax.pay(source, payload.houseCode or payload.code)
+  if not ok then
+    local messages = {
+      insufficient_funds = 'Saldo bancario insuficiente.',
+      not_enough_money = 'Saldo bancario insuficiente.',
+      tax_not_due_yet = 'O IPTU ainda nao esta dentro da janela de pagamento.',
+      tax_payment_in_progress = 'Ja existe um pagamento em andamento.',
+      tax_payment_manual_review = 'Existe um pagamento pendente de revisao administrativa.',
+      tax_owner_required = 'Somente o proprietario pode pagar este IPTU.',
+      tax_not_initialized = 'O IPTU ainda nao foi inicializado.',
+      tax_blocked = 'O IPTU esta bloqueado administrativamente.',
+      tax_state_changed = 'A situacao do IPTU mudou; o valor debitado foi devolvido.',
+      financial_service_unavailable = 'O servico bancario esta indisponivel.',
+      core_unavailable = 'O servico bancario esta indisponivel.',
+      money_export_failed = 'Nao foi possivel consultar o servico bancario.',
+      payment_failed = 'O banco recusou o pagamento.',
+      tax_payment_internal_error = 'Ocorreu um erro interno ao processar o IPTU.'
+    }
+    return { ok = false, reason = result or 'tax_payment_failed', message = messages[result] or 'Nao foi possivel pagar o IPTU.' }
+  end
+  return {
+    ok = true, houseCode = result.houseCode, paymentId = result.paymentId,
+    amount = result.amount, status = result.status, nextDueAt = result.nextDueAt,
+    message = 'IPTU pago pelo banco.'
+  }
+end)
+
+RegisterNetEvent('mz_houses:server:taxPlayerReady', function()
+  local src = source
+  if allowSensitive(src, 'tax_notice', 2, 60) then MZHousesTax.notifyOwner(src) end
+end)
+
+lib.callback.register('mz_houses:server:setDoorState', function(source, payload)
+  if not allowSensitive(source, 'door', 10, 10) then return { ok = false, error = 'rate_limited' } end
+  payload = type(payload) == 'table' and payload or {}
+  local code = trim(payload.houseCode or payload.code)
+  if code == '' or not nearPropertyDoor(source, code) then return { ok = false, error = 'too_far_from_entrance' } end
+  local ok, result = MZHousesService.setDoorState(source, code, payload.state, isHouseAdmin(source))
+  if not ok then return { ok = false, error = result or 'door_update_failed' } end
+  return { ok = true, houseCode = result.houseCode, state = result.state }
+end)
+
+local PURCHASE_MESSAGES = {
+  rate_limited = { 'rate_limited', 'Aguarde antes de tentar comprar novamente.' },
+  invalid_house = { 'invalid_property', 'Propriedade inválida.' },
+  must_purchase_at_entrance = { 'invalid_purchase_context', 'A compra deve ser feita na entrada da propriedade.' },
+  preview_active = { 'invalid_purchase_context', 'Saia do preview antes de comprar.' },
+  too_far_from_entrance = { 'too_far_from_property', 'Aproxime-se da entrada para comprar.' },
+  not_enough_money = { 'insufficient_funds', 'Saldo bancário insuficiente.' },
+  property_already_owned = { 'property_already_sold', 'Esta propriedade já possui proprietário.' },
+  purchase_conflict = { 'property_already_sold', 'A propriedade foi comprada por outro jogador.' },
+  property_not_for_sale = { 'sale_unavailable', 'Esta propriedade não está mais à venda.' },
+  sale_mode_not_allowed = { 'sale_unavailable', 'A compra direta não está disponível.' },
+  invalid_sale_price = { 'invalid_price', 'O preço da propriedade é inválido.' },
+  invalid_sale_mode = { 'sale_unavailable', 'O modo de venda é inválido.' },
+  property_not_active = { 'property_unavailable', 'A propriedade não está ativa.' },
+  property_not_residential_sale = { 'property_unavailable', 'Esta propriedade não aceita venda residencial.' },
+  property_not_individually_sellable = { 'property_unavailable', 'Esta propriedade não pode ser vendida individualmente.' },
+  property_not_owner_policy = { 'property_unavailable', 'A política desta propriedade não permite venda residencial.' },
+  purchase_in_progress = { 'purchase_in_progress', 'Já existe uma compra em andamento para esta propriedade.' },
+  purchase_financial_state_pending = { 'financial_review_required', 'Existe uma transação pendente de revisão para esta propriedade.' },
+  purchase_manual_review = { 'financial_review_required', 'Existe uma transação pendente de revisão para esta propriedade.' },
+  player_not_loaded = { 'player_not_ready', 'Os dados do jogador ainda não estão disponíveis.' },
+  core_unavailable = { 'financial_service_unavailable', 'O serviço bancário está indisponível.' },
+  money_export_failed = { 'financial_service_unavailable', 'Não foi possível consultar o serviço bancário.' },
+  payment_failed = { 'payment_failed', 'O banco recusou o pagamento.' },
+  property_admin_mutation_in_progress = { 'property_busy', 'Esta unidade está em uma operação administrativa.' },
+  purchase_unit_requires_intercom_context = { 'invalid_purchase_context', 'A compra desta unidade deve ser feita pelo interfone do prédio.' },
+  too_far_from_intercom = { 'too_far_from_property', 'Aproxime-se do interfone para comprar.' },
+  unit_not_in_building = { 'invalid_purchase_context', 'A unidade não pertence a este prédio.' },
+  intercom_disabled = { 'intercom_unavailable', 'O interfone deste prédio está desativado.' },
+  building_blocked = { 'intercom_unavailable', 'O acesso deste prédio está bloqueado.' },
+  invalid_building = { 'invalid_purchase_context', 'Prédio inválido.' },
+  building_not_found = { 'invalid_purchase_context', 'Prédio não encontrado.' },
+  not_apartment_building = { 'invalid_purchase_context', 'O contexto informado não é um prédio de apartamentos.' },
+  building_not_active = { 'property_unavailable', 'O prédio não está ativo.' },
+  building_not_visible = { 'intercom_unavailable', 'O interfone não está disponível para este jogador.' },
+  unit_not_found = { 'invalid_property', 'Unidade não encontrada.' },
+  unit_not_active = { 'property_unavailable', 'A unidade não está ativa.' }
+}
+
+local function purchaseFailure(reason)
+  reason = trim(reason)
+  local mapped = PURCHASE_MESSAGES[reason]
+  if mapped then return { ok = false, reason = mapped[1], message = mapped[2] } end
+  return { ok = false, reason = 'purchase_internal_error', message = 'Não foi possível concluir a compra.' }
+end
+
+local function purchaseCallbackTraceback(err)
+  if type(debug) == 'table' and type(debug.traceback) == 'function' then
+    return debug.traceback(tostring(err), 2)
+  end
+  return tostring(err)
+end
+
+local function purchaseCallbackDebug(stage, source, code, detail)
+  if MZHousesConfig.CommerceDebug ~= true and MZHousesConfig.Debug ~= true then return end
+  print(('[mz_houses][purchase-callback] stage=%s source=%s house=%s detail=%s'):format(
+    tostring(stage), tostring(tonumber(source) or 0), tostring(code or ''), tostring(detail or '-')
+  ))
+end
+
+lib.callback.register('mz_houses:server:purchaseProperty', function(source, payload)
+  payload = type(payload) == 'table' and payload or {}
+  local code = trim(payload.houseCode or payload.code)
+  pcall(purchaseCallbackDebug, 'callback_received', source, code)
+
+  local protected, response = xpcall(function()
+    if not allowSensitive(source, 'purchase', 3, 10) then return purchaseFailure('rate_limited') end
+    if code == '' then return purchaseFailure('invalid_house') end
+    if HouseSessions[source] then return purchaseFailure('must_purchase_at_entrance') end
+    local player = Player(source)
+    if player and player.state and trim(player.state.mzHousePreview) ~= '' then
+      return purchaseFailure('preview_active')
+    end
+    local targetHouse = MZHousesRepository.getHouseByCode(code)
+    local targetProperty = MZHousesRepository.normalizePropertyFields(targetHouse or {})
+    if targetProperty.subtype == 'apartment_unit' then
+      return purchaseFailure('purchase_unit_requires_intercom_context')
+    end
+    if not nearPropertyDoor(source, code) then return purchaseFailure('too_far_from_entrance') end
+
+    local purchased, result = MZHousesCommerce.purchase(source, code)
+    if not purchased then return purchaseFailure(result or 'purchase_failed') end
+    local refreshed = pcall(refreshVisibilityTargets, 'property_purchase_completed')
+    if not refreshed then pcall(purchaseCallbackDebug, 'visibility_refresh_failed', source, code, result.transactionId) end
+    return {
+      ok = true,
+      houseCode = result.houseCode,
+      transactionId = result.transactionId,
+      message = 'Compra concluída com sucesso.'
+    }
+  end, purchaseCallbackTraceback)
+
+  if not protected then
+    pcall(purchaseCallbackDebug, 'exception_captured', source, code, 'purchase_internal_error')
+    pcall(function()
+      MZHousesService.log('property.purchase.callback.exception', code, source, nil, { reason = 'purchase_internal_error' })
+    end)
+    print(('[mz_houses][purchase-callback] exception house=%s source=%s error=%s'):format(
+      tostring(code), tostring(source), tostring(response)
+    ))
+    response = purchaseFailure('purchase_internal_error')
+  end
+
+  if type(response) ~= 'table' then response = purchaseFailure('purchase_internal_error') end
+  pcall(purchaseCallbackDebug, 'response_sent', source, code, response.reason or response.transactionId)
+  return response
+end)
+
+lib.callback.register('mz_houses:server:purchaseApartmentUnit', function(source, payload)
+  payload = type(payload) == 'table' and payload or {}
+  local buildingCode = trim(payload.buildingCode)
+  local unitCode = trim(payload.unitCode or payload.houseCode or payload.code)
+  local protected, response = xpcall(function()
+    if not allowSensitive(source, 'purchase_intercom', 3, 10) then return purchaseFailure('rate_limited') end
+    if HouseSessions[source] then return purchaseFailure('must_purchase_at_entrance') end
+    local player = Player(source)
+    if player and player.state and trim(player.state.mzHousePreview) ~= '' then
+      return purchaseFailure('preview_active')
+    end
+    local contextOk, context = MZHousesApartments.validateIntercomPurchaseContext(
+      source, buildingCode, unitCode, isHouseAdmin(source)
+    )
+    if not contextOk then return purchaseFailure(context or 'invalid_purchase_context') end
+    MZHousesService.log('building.unit.purchase.started', unitCode, source, nil, {
+      buildingCode = buildingCode, unitNumber = context.unitNumber
+    })
+    local purchased, result = MZHousesCommerce.purchase(source, unitCode)
+    if not purchased then
+      MZHousesService.log('building.unit.purchase.failed', unitCode, source, nil, {
+        buildingCode = buildingCode, reason = result
+      })
+      return purchaseFailure(result or 'purchase_failed')
+    end
+    pcall(refreshVisibilityTargets, 'building_unit_purchase_completed')
+    MZHousesService.log('building.unit.purchase.completed', unitCode, source, nil, {
+      buildingCode = buildingCode, transactionId = result.transactionId
+    })
+    return {
+      ok = true,
+      houseCode = result.houseCode,
+      buildingCode = buildingCode,
+      transactionId = result.transactionId,
+      message = 'Compra da unidade concluída com sucesso.'
+    }
+  end, purchaseCallbackTraceback)
+  if not protected then
+    print(('[mz_houses][apartment-purchase] exception building=%s unit=%s source=%s error=%s'):format(
+      buildingCode, unitCode, tostring(source), tostring(response)
+    ))
+    response = purchaseFailure('purchase_internal_error')
+  end
+  if type(response) ~= 'table' then response = purchaseFailure('purchase_internal_error') end
+  return response
+end)
+
+lib.callback.register('mz_houses:server:openHouseStash', function(source, payload)
+  if not allowSensitive(source, 'stash', 10, 10) then return { ok = false, error = 'rate_limited' } end
+  local houseCode = type(payload) == 'table' and payload.houseCode or payload
+  local session, sessionErr = confirmedInteriorFeatureSession(source, houseCode)
+  if not session then return { ok = false, error = sessionErr } end
+  local ok, result, detail = MZHousesService.openHouseStash(source, houseCode, isHouseAdmin(source), session)
   if not ok then
     return {
       ok = false,
@@ -985,8 +1490,11 @@ lib.callback.register('mz_houses:server:openHouseStash', function(source, payloa
 end)
 
 lib.callback.register('mz_houses:server:openHouseWardrobe', function(source, payload)
+  if not allowSensitive(source, 'wardrobe', 10, 10) then return { ok = false, error = 'rate_limited' } end
   local houseCode = type(payload) == 'table' and payload.houseCode or payload
-  local ok, result, detail = MZHousesService.openHouseWardrobe(source, houseCode, isHouseAdmin(source))
+  local session, sessionErr = confirmedInteriorFeatureSession(source, houseCode)
+  if not session then return { ok = false, error = sessionErr } end
+  local ok, result, detail = MZHousesService.openHouseWardrobe(source, houseCode, isHouseAdmin(source), session)
   if not ok then
     return {
       ok = false,
@@ -1005,9 +1513,12 @@ lib.callback.register('mz_houses:server:openHouseWardrobe', function(source, pay
 end)
 
 lib.callback.register('mz_houses:server:openHouseGarage', function(source, payload)
+  if not allowSensitive(source, 'garage', 10, 10) then return { ok = false, error = 'rate_limited' } end
   local houseCode = type(payload) == 'table' and payload.houseCode or payload
   local action = type(payload) == 'table' and payload.action or 'open'
-  local ok, result, detail = MZHousesService.openHouseGarage(source, houseCode, action, isHouseAdmin(source))
+  local session, sessionErr = garageFeatureSession(source, houseCode, action)
+  if not session then return { ok = false, error = sessionErr } end
+  local ok, result, detail = MZHousesService.openHouseGarage(source, houseCode, action, isHouseAdmin(source), session)
   if not ok then
     return {
       ok = false,
@@ -1129,6 +1640,36 @@ exports('CanPlayerManageProperty', function(source, code)
   return MZHousesService.canPlayerManageProperty(source, code, isHouseAdmin(source))
 end)
 
+exports('GetPropertyAccessPolicy', function(code)
+  local property, err = MZHousesService.getAdminPropertyInfo(code)
+  if not property then return nil, err end
+  return property.accessPolicy
+end)
+
+exports('SetPropertyAccessPolicy', function(code, policy, actorSource)
+  if not isHouseAdmin(actorSource) then return false, 'admin_required' end
+  return MZHousesService.updateAdminProperty(actorSource, code, { accessPolicy = policy }, 'property.access.policy.set', {
+    mode = type(policy) == 'table' and policy.mode or nil
+  })
+end)
+
+exports('GetPropertyDoorState', function(code)
+  return MZHousesService.getDoorState(code)
+end)
+
+exports('CanControlPropertyDoor', function(source, code)
+  return MZHousesService.CanControlDoor(source, code, isHouseAdmin(source))
+end)
+
+exports('CanControlDoor', function(source, code)
+  return MZHousesService.CanControlDoor(source, code, isHouseAdmin(source))
+end)
+
+exports('SetPropertyDoorState', function(code, state, actorSource)
+  if not isHouseAdmin(actorSource) then return false, 'admin_required' end
+  return MZHousesService.setDoorState(actorSource, code, state, true)
+end)
+
 exports('CanPropertyBeListed', function(code)
   return MZHousesService.CanPropertyBeListed(code)
 end)
@@ -1145,8 +1686,8 @@ exports('ClearPropertyOwner', function(code, actorSource, reason, meta)
   return ok, result
 end)
 
-exports('GivePropertyKey', function(code, citizenid, actorSource, reason, meta)
-  local ok, result = MZHousesService.GivePropertyKey(code, citizenid, actorSource, reason, meta)
+exports('GivePropertyKey', function(code, citizenid, actorSource, reason, meta, role)
+  local ok, result = MZHousesService.GivePropertyKey(code, citizenid, actorSource, reason, meta, role)
   if ok then refreshVisibilityTargets('property_key_given') end
   return ok, result
 end)
@@ -1169,8 +1710,8 @@ exports('ClearHouseOwner', function(houseCode, actorSource, reason, meta)
   return ok, result
 end)
 
-exports('GiveHouseKey', function(houseCode, citizenid, actorSource, reason, meta)
-  local ok, result = MZHousesService.GivePropertyKey(houseCode, citizenid, actorSource, reason, meta)
+exports('GiveHouseKey', function(houseCode, citizenid, actorSource, reason, meta, role)
+  local ok, result = MZHousesService.GivePropertyKey(houseCode, citizenid, actorSource, reason, meta, role)
   if ok then refreshVisibilityTargets('house_key_given') end
   return ok, result
 end)
@@ -1186,15 +1727,121 @@ exports('GetHouseAccess', function(houseCode)
 end)
 
 exports('OpenHouseStash', function(source, houseCode)
-  return MZHousesService.openHouseStash(source, houseCode, isHouseAdmin(source))
+  local session, sessionErr = confirmedInteriorFeatureSession(source, houseCode)
+  if not session then return false, sessionErr end
+  return MZHousesService.openHouseStash(source, houseCode, isHouseAdmin(source), session)
 end)
 
 exports('OpenHouseWardrobe', function(source, houseCode)
-  return MZHousesService.openHouseWardrobe(source, houseCode, isHouseAdmin(source))
+  local session, sessionErr = confirmedInteriorFeatureSession(source, houseCode)
+  if not session then return false, sessionErr end
+  return MZHousesService.openHouseWardrobe(source, houseCode, isHouseAdmin(source), session)
 end)
 
 exports('OpenHouseGarage', function(source, houseCode, action)
-  return MZHousesService.openHouseGarage(source, houseCode, action, isHouseAdmin(source))
+  local session, sessionErr = garageFeatureSession(source, houseCode, action)
+  if not session then return false, sessionErr end
+  return MZHousesService.openHouseGarage(source, houseCode, action, isHouseAdmin(source), session)
+end)
+
+exports('CanAccessPropertyFeature', function(source, houseCode, featureName)
+  local session, sessionErr
+  if trim(featureName):lower() == 'garage' then
+    session, sessionErr = garageFeatureSession(source, houseCode, 'open')
+  else
+    session, sessionErr = confirmedInteriorFeatureSession(source, houseCode)
+  end
+  if not session then return false, sessionErr end
+  return MZHousesService.CanAccessPropertyFeature(source, houseCode, featureName, session, isHouseAdmin(source))
+end)
+
+-- API administrativa. Todos os exports mutaveis exigem um actorSource admin.
+exports('CreateProperty', function(payload, actorSource)
+  if not isHouseAdmin(actorSource) then return false, 'admin_required' end
+  local ok, result = MZHousesService.createAdminProperty(actorSource, payload)
+  if ok then refreshVisibilityTargets('property_created') end
+  return ok, result
+end)
+
+exports('UpdateProperty', function(code, patch, actorSource)
+  if not isHouseAdmin(actorSource) then return false, 'admin_required' end
+  local ok, result = MZHousesService.updateAdminProperty(actorSource, code, patch, 'house.admin.export.update', patch)
+  if ok then refreshVisibilityTargets('property_updated') end
+  return ok, result
+end)
+
+exports('DeleteProperty', function(code, actorSource, confirmCode)
+  if not isHouseAdmin(actorSource) then return false, 'admin_required' end
+  if trim(code) == '' or trim(confirmCode) ~= trim(code) then return false, 'confirmation_mismatch' end
+  local ok, result = MZHousesService.updateAdminProperty(actorSource, code, {
+    enabled = false, status = 'archived', visibility = 'hidden'
+  }, 'house.admin.archive', { softDelete = true })
+  if ok then refreshVisibilityTargets('property_archived') end
+  return ok, result
+end)
+
+exports('SetPropertyEntrance', function(code, entrance, actorSource)
+  if not isHouseAdmin(actorSource) then return false, 'admin_required' end
+  return MZHousesService.updateAdminProperty(actorSource, code, { entrance = entrance }, 'house.admin.entrance.set')
+end)
+
+exports('SetPropertyInterior', function(code, shell, interior, actorSource)
+  if not isHouseAdmin(actorSource) then return false, 'admin_required' end
+  return MZHousesService.updateAdminProperty(actorSource, code, { shell = shell, interior = interior }, 'house.admin.interior.set')
+end)
+
+exports('SetPropertyGarage', function(code, garage, actorSource)
+  if not isHouseAdmin(actorSource) then return false, 'admin_required' end
+  return MZHousesService.updateAdminProperty(actorSource, code, { garage = garage }, 'house.admin.garage.set')
+end)
+
+exports('SetPropertyEnabled', function(code, enabled, actorSource)
+  if not isHouseAdmin(actorSource) then return false, 'admin_required' end
+  return MZHousesService.updateAdminProperty(actorSource, code, {
+    enabled = enabled == true, status = enabled == true and 'active' or 'disabled'
+  }, 'house.admin.enabled.set')
+end)
+
+exports('ListPropertyKeys', function(code, actorSource)
+  if not isHouseAdmin(actorSource) then return nil, 'admin_required' end
+  return MZHousesService.listHouseKeys(code, actorSource, true)
+end)
+
+exports('SetPropertySale', function(code, commerce, actorSource)
+  if not isHouseAdmin(actorSource) then return false, 'admin_required' end
+  local ok, result = MZHousesCommerce.configureSale(actorSource, code, commerce)
+  if ok then refreshVisibilityTargets('property_sale_configured') end
+  return ok, result
+end)
+
+exports('PurchaseProperty', function(source, code)
+  source = tonumber(source)
+  if not source or HouseSessions[source] or not nearPropertyDoor(source, trim(code)) then
+    return false, 'too_far_from_entrance'
+  end
+  local house = MZHousesRepository.getHouseByCode(code)
+  local property = MZHousesRepository.normalizePropertyFields(house or {})
+  if property.subtype == 'apartment_unit' then
+    return false, 'purchase_unit_requires_intercom_context'
+  end
+  local ok, result = MZHousesCommerce.purchase(source, code)
+  if ok then refreshVisibilityTargets('property_purchase_completed') end
+  return ok, result
+end)
+
+exports('GetPropertyTaxStatus', function(code, source)
+  source = tonumber(source)
+  if not source or source <= 0 then return nil, 'source_required' end
+  return MZHousesTax.getStatus(source, code, isHouseAdmin(source), true)
+end)
+
+exports('PayPropertyTax', function(source, code)
+  return MZHousesTax.pay(source, code)
+end)
+
+exports('ConfigurePropertyTax', function(code, tax, actorSource, options)
+  if not isHouseAdmin(actorSource) then return false, 'admin_required' end
+  return MZHousesTax.configure(actorSource, code, tax, options)
 end)
 
 CreateThread(function()
@@ -1202,10 +1849,34 @@ CreateThread(function()
     print('[mz_houses] house garage integration debug loaded')
   end
 
-  MZHousesService.bootstrap()
+  local booted = MZHousesService.bootstrap()
+  if booted == true then
+    local recovered, recoverErr = pcall(MZHousesCommerce.recoverInterruptedTransactions)
+    if not recovered then
+      print(('[mz_houses][commerce] transaction recovery failed: %s'):format(tostring(recoverErr)))
+    end
+    local taxRecovered, taxRecoverErr = pcall(MZHousesTax.recoverInterruptedPayments)
+    if not taxRecovered then
+      print(('[mz_houses][tax] payment recovery failed: %s'):format(tostring(taxRecoverErr)))
+    end
+    local processed, processErr = pcall(MZHousesTax.processBatch)
+    if not processed then
+      print(('[mz_houses][tax] initial processing failed: %s'):format(tostring(processErr)))
+    end
+  end
   debugLog('started', {
     houses = MZHousesService.countHouses()
   })
+end)
+
+
+CreateThread(function()
+  local seconds = math.max(300, math.floor(tonumber(((MZHousesConfig or {}).Tax or {}).processingIntervalSeconds) or 3600))
+  while true do
+    Wait(seconds * 1000)
+    local ok, err = pcall(MZHousesTax.processBatch)
+    if not ok then print(('[mz_houses][tax] batch processing failed: %s'):format(tostring(err))) end
+  end
 end)
 
 registerAdminCommands()

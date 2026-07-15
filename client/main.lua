@@ -12,8 +12,111 @@ local VisibleHousesCache = {
   cacheSeconds = 5
 }
 
+local DoorContextCache = {
+  entries = {},
+  ttlMs = 1000
+}
+
+local DoorAnimationBusy = false
+local DoorToggleBusy = false
+local DoorToggleCooldownUntil = 0
+
 local function trim(value)
   return tostring(value or ''):gsub('^%s+', ''):gsub('%s+$', '')
+end
+
+local function normalizeDoorState(value)
+  local state = trim(value):lower()
+  if state == 'unlocked' or state == 'blocked' then return state end
+  return 'locked'
+end
+
+function MZHouses.DoorStateLabel(state)
+  state = normalizeDoorState(state)
+  if state == 'unlocked' then return 'Destrancada' end
+  if state == 'blocked' then return 'Interditada' end
+  return 'Trancada'
+end
+
+function MZHouses.DoorActionLabel(state)
+  state = normalizeDoorState(state)
+  if state == 'unlocked' then return 'Trancar' end
+  if state == 'locked' then return 'Destrancar' end
+  return nil
+end
+
+local function findVisibleHouse(code)
+  code = trim(code)
+  for key, house in pairs(type(VisibleHousesCache.houses) == 'table' and VisibleHousesCache.houses or {}) do
+    local candidateCode = type(key) == 'number' and trim(house and house.code) or trim(key)
+    if candidateCode == code then return house, key end
+  end
+  return nil
+end
+
+function MZHouses.GetVisibleHouseByCode(houseCode)
+  return findVisibleHouse(trim(houseCode))
+end
+
+local function applyDoorContext(code, state, canControl, expiresAt)
+  code = trim(code)
+  if code == '' then return nil end
+  local previous = DoorContextCache.entries[code] or {}
+  local nextCanControl = previous.canControl == true
+  if canControl ~= nil then nextCanControl = canControl == true end
+  local entry = {
+    state = normalizeDoorState(state or previous.state),
+    canControl = nextCanControl,
+    expiresAt = tonumber(expiresAt) or (GetGameTimer() + DoorContextCache.ttlMs)
+  }
+  DoorContextCache.entries[code] = entry
+  local presentationChanged = previous.state ~= entry.state or previous.canControl ~= entry.canControl
+
+  local visible = findVisibleHouse(code)
+  if type(visible) == 'table' then visible.doorState = entry.state end
+  if CurrentHouse.inside == true and trim(CurrentHouse.code) == code then
+    CurrentHouse.data = type(CurrentHouse.data) == 'table' and CurrentHouse.data or {}
+    CurrentHouse.data.doorState = entry.state
+  end
+
+  if presentationChanged then
+    TriggerEvent('mz_houses:client:doorPresentationChanged', {
+      houseCode = code,
+      state = entry.state,
+      canControl = entry.canControl
+    })
+  end
+  return entry
+end
+
+function MZHouses.GetDoorPresentation(houseCode, house)
+  local code = trim(houseCode)
+  local cached = DoorContextCache.entries[code]
+  local state = normalizeDoorState(cached and cached.state or type(house) == 'table' and house.doorState or 'locked')
+  return {
+    state = state,
+    stateLabel = MZHouses.DoorStateLabel(state),
+    canControl = cached and cached.canControl == true or false,
+    actionLabel = cached and cached.canControl == true and MZHouses.DoorActionLabel(state) or nil
+  }
+end
+
+function MZHouses.GetDoorContext(houseCode, force)
+  local code = trim(houseCode)
+  if code == '' then return nil, 'invalid_house' end
+  local now = GetGameTimer()
+  local cached = DoorContextCache.entries[code]
+  if force ~= true and cached and now < (cached.expiresAt or 0) then return cached end
+  if not lib or not lib.callback or type(lib.callback.await) ~= 'function' then return nil, 'callback_unavailable' end
+
+  local ok, response = pcall(function()
+    return lib.callback.await('mz_houses:server:getDoorContext', false, { houseCode = code })
+  end)
+  if not ok or type(response) ~= 'table' or response.ok ~= true then
+    MZHouses.Debug('door_context_failed', { house = code, response = response })
+    return nil, type(response) == 'table' and response.error or 'door_context_failed'
+  end
+  return applyDoorContext(code, response.state, response.canControl, now + DoorContextCache.ttlMs)
 end
 
 local function cloneTable(value)
@@ -341,22 +444,151 @@ end
 
 local function resolveInteriorPointCoords(point)
   local coords = asVector3(point and point.coords)
+
   if not coords then
     return nil
   end
 
   local relative = point.relative == true or point.relative == nil
+
   if relative ~= true then
     return coords
   end
 
+  if GetResourceState('mz_interiors') == 'started' then
+    local ok, resolved = pcall(function()
+      return exports['mz_interiors']:ResolveCurrentInteriorPoint({
+        x = coords.x,
+        y = coords.y,
+        z = coords.z
+      })
+    end)
+
+    local world = ok and asVector3(resolved) or nil
+
+    if world then
+      return world
+    end
+  end
+
+  -- Fallback para shells antigos com heading 0.
   local interior = getCurrentInterior()
   local spawnCoords = asVector3(interior and interior.spawnCoords)
+
   if not spawnCoords then
     return coords
   end
 
-  return vector3(spawnCoords.x + coords.x, spawnCoords.y + coords.y, spawnCoords.z + coords.z)
+  return vector3(
+    spawnCoords.x + coords.x,
+    spawnCoords.y + coords.y,
+    spawnCoords.z + coords.z
+  )
+end
+
+local function friendlyDoorError(err)
+  local messages = {
+    door_blocked = 'A porta está interditada.',
+    admin_required = 'A porta está interditada.',
+    door_control_denied = 'Você não possui controle desta porta.',
+    no_house_access = 'Você não possui controle desta porta.'
+  }
+  return messages[tostring(err or '')] or 'Não foi possível alterar a porta.'
+end
+
+local function requestAnimDict(dict, timeoutMs)
+  RequestAnimDict(dict)
+  local deadline = GetGameTimer() + (tonumber(timeoutMs) or 2000)
+  while not HasAnimDictLoaded(dict) and GetGameTimer() < deadline do Wait(0) end
+  return HasAnimDictLoaded(dict)
+end
+
+local function playDoorKeyAnimation()
+  local config = MZHousesConfig.DoorAnimation or {}
+  if config.enabled == false or DoorAnimationBusy then return nil end
+  local ped = PlayerPedId()
+  if not DoesEntityExist(ped) or IsEntityDead(ped) or IsPedRagdoll(ped) or IsPedInAnyVehicle(ped, false) then
+    return nil
+  end
+
+  DoorAnimationBusy = true
+  local dict = trim(config.dict)
+  local clip = trim(config.clip)
+  if dict == '' then dict = 'anim@mp_player_intmenu@key_fob@' end
+  if clip == '' then clip = 'fob_click' end
+  if not requestAnimDict(dict, tonumber(config.loadTimeoutMs) or 2000) then
+    DoorAnimationBusy = false
+    return nil
+  end
+
+  local duration = math.max(250, tonumber(config.duration) or 900)
+  TaskPlayAnim(ped, dict, clip, 8.0, -8.0, duration, tonumber(config.flag) or 48, 0.0, false, false, false)
+  local startedAt = GetGameTimer()
+  Wait(math.min(duration, math.max(0, tonumber(config.triggerAt) or 500)))
+  return { ped = ped, dict = dict, clip = clip, duration = duration, startedAt = startedAt }
+end
+
+local function finishDoorKeyAnimation(animation)
+  if type(animation) == 'table' then
+    local remaining = animation.duration - (GetGameTimer() - animation.startedAt)
+    if remaining > 0 then Wait(remaining) end
+    if DoesEntityExist(animation.ped) then
+      StopAnimTask(animation.ped, animation.dict, animation.clip, 1.0)
+    end
+    RemoveAnimDict(animation.dict)
+  end
+  DoorAnimationBusy = false
+end
+
+function MZHouses.ToggleDoor(houseCode)
+  local code = trim(houseCode)
+  if code == '' then return false, 'invalid_house' end
+  local now = GetGameTimer()
+  if DoorToggleBusy or now < DoorToggleCooldownUntil then return false, 'door_toggle_busy' end
+  local ped = PlayerPedId()
+  if IsPedInAnyVehicle(ped, false) then return false, 'in_vehicle' end
+
+  DoorToggleBusy = true
+  DoorToggleCooldownUntil = now + (tonumber((MZHousesConfig.DoorAnimation or {}).cooldownMs) or 1000)
+  local function releaseToggle()
+    DoorToggleBusy = false
+  end
+
+  local context, contextErr = MZHouses.GetDoorContext(code, true)
+  if not context then
+    MZHouses.Notify(friendlyDoorError(contextErr), 'error')
+    releaseToggle()
+    return false, contextErr
+  end
+  if context.state == 'blocked' then
+    MZHouses.Notify('A porta está interditada.', 'warning')
+    releaseToggle()
+    return false, 'door_blocked'
+  end
+  if context.canControl ~= true then
+    MZHouses.Notify('Você não possui controle desta porta.', 'error')
+    releaseToggle()
+    return false, 'door_control_denied'
+  end
+
+  local nextState = context.state == 'unlocked' and 'locked' or 'unlocked'
+  local animation = playDoorKeyAnimation()
+  local ok, response = pcall(function()
+    return lib.callback.await('mz_houses:server:setDoorState', false, { houseCode = code, state = nextState })
+  end)
+  finishDoorKeyAnimation(animation)
+  if not ok or type(response) ~= 'table' or response.ok ~= true then
+    local err = type(response) == 'table' and response.error or 'door_update_failed'
+    MZHouses.Debug('door_toggle_failed', { house = code, state = nextState, response = response })
+    MZHouses.Notify(friendlyDoorError(err), 'error')
+    releaseToggle()
+    return false, err
+  end
+
+  applyDoorContext(code, response.state or nextState, true)
+  MZHouses.Notify(nextState == 'locked' and 'Porta trancada.' or 'Porta destrancada.', 'success')
+  releaseToggle()
+  return true, response
 end
 
 function MZHouses.GetCurrentHouse()
@@ -373,7 +605,9 @@ function MZHouses.UpdateCurrentHouseData(house)
     return false
   end
 
+  local featureAccess = type(CurrentHouse.data) == 'table' and cloneTable(CurrentHouse.data.featureAccess) or nil
   CurrentHouse.data = cloneTable(house)
+  if type(featureAccess) == 'table' then CurrentHouse.data.featureAccess = featureAccess end
   return true
 end
 
@@ -387,7 +621,7 @@ local function requestHouseAccess(houseCode)
   end
 
   local ok, response = pcall(function()
-    return lib.callback.await('mz_houses:server:canEnterHouse', false, {
+    return lib.callback.await('mz_houses:server:beginEnterHouse', false, {
       houseCode = houseCode
     })
   end)
@@ -531,6 +765,29 @@ local function requestOpenHouseGarage(houseCode, action)
   return true, response
 end
 
+function MZHouses.RefreshCurrentFeatureAccess()
+  if CurrentHouse.inside ~= true or trim(CurrentHouse.code) == '' then return false, 'not_inside_property' end
+  if not lib or not lib.callback or type(lib.callback.await) ~= 'function' then
+    return false, 'callback_unavailable'
+  end
+
+  local code = trim(CurrentHouse.code)
+  local ok, response = pcall(function()
+    return lib.callback.await('mz_houses:server:getFeatureContext', false, { houseCode = code })
+  end)
+  if not ok or type(response) ~= 'table' or response.ok ~= true or trim(response.houseCode) ~= code then
+    return false, type(response) == 'table' and response.error or 'feature_context_failed'
+  end
+
+  CurrentHouse.data = type(CurrentHouse.data) == 'table' and CurrentHouse.data or {}
+  CurrentHouse.data.featureAccess = {
+    stash = type(response.features) == 'table' and response.features.stash == true,
+    wardrobe = type(response.features) == 'table' and response.features.wardrobe == true,
+    garage = type(response.features) == 'table' and response.features.garage == true
+  }
+  return true, cloneTable(CurrentHouse.data.featureAccess)
+end
+
 local function openMzContext(menu)
   if GetResourceState('mz_menu') ~= 'started' then
     return false
@@ -572,14 +829,15 @@ local function closeMzMenu()
   return false
 end
 
-local function getApartmentUnits(buildingCode)
+local function getApartmentUnits(buildingCode, contextType)
   if not lib or not lib.callback or type(lib.callback.await) ~= 'function' then
     return nil, 'callback_unavailable'
   end
 
   local ok, response = pcall(function()
     return lib.callback.await('mz_houses:server:listApartmentUnits', false, {
-      buildingCode = buildingCode
+      buildingCode = buildingCode,
+      context = contextType
     })
   end)
 
@@ -594,8 +852,61 @@ local function getApartmentUnits(buildingCode)
   return response.units or {}, nil, response.building
 end
 
+local function formatCurrency(value)
+  local text = tostring(math.max(0, math.floor(tonumber(value) or 0)))
+  while true do
+    local updated, count = text:gsub('^(%-?%d+)(%d%d%d)', '%1.%2')
+    text = updated
+    if count == 0 then break end
+  end
+  return ('R$ %s'):format(text)
+end
+
+function MZHouses.ConfirmPropertyPurchase(houseCode, house, purchaseContext)
+  houseCode = trim(houseCode)
+  house = type(house) == 'table' and house or MZHouses.GetVisibleHouseByCode(houseCode)
+  if houseCode == '' or type(house) ~= 'table' then return false, 'house_not_found' end
+  if house.saleEnabled ~= true or tostring(house.saleMode) ~= 'direct' then return false, 'property_not_for_direct_sale' end
+  if not lib or type(lib.alertDialog) ~= 'function' then return false, 'confirmation_unavailable' end
+
+  local decision = lib.alertDialog({
+    header = 'Confirmar compra',
+    content = ('Comprar **%s** por **%s** usando o saldo bancario?'):format(
+      tostring(house.label or houseCode), formatCurrency(house.salePrice)
+    ),
+    centered = true,
+    cancel = true,
+    labels = { confirm = 'Comprar', cancel = 'Cancelar' }
+  })
+  if decision ~= 'confirm' then return false, 'purchase_cancelled' end
+
+  local ok, response = pcall(function()
+    if type(purchaseContext) == 'table' and trim(purchaseContext.buildingCode) ~= '' then
+      return lib.callback.await('mz_houses:server:purchaseApartmentUnit', false, {
+        buildingCode = trim(purchaseContext.buildingCode),
+        unitCode = houseCode
+      })
+    end
+    return lib.callback.await('mz_houses:server:purchaseProperty', false, { houseCode = houseCode })
+  end)
+  if not ok or type(response) ~= 'table' then
+    MZHouses.Debug('purchase_callback_transport_failed', {
+      houseCode = houseCode,
+      error = ok and 'invalid_response' or tostring(response)
+    })
+    return false, 'purchase_callback_failed'
+  end
+  if response.ok ~= true then
+    MZHouses.Debug('purchase_rejected', { houseCode = houseCode, reason = response.reason })
+    return false, tostring(response.message or 'Não foi possível concluir a compra.')
+  end
+  MZHouses.Notify(tostring(response.message or 'Compra concluída com sucesso.'), 'success')
+  MZHouses.RefreshVisibleHouses(true)
+  return true, response
+end
+
 function MZHouses.OpenApartmentIntercom(buildingCode)
-  local units, err = getApartmentUnits(buildingCode)
+  local units, err = getApartmentUnits(buildingCode, 'intercom')
   if not units then
     MZHouses.Notify(('Nao foi possivel abrir interfone: %s'):format(tostring(err)), 'error')
     return false, err
@@ -604,13 +915,20 @@ function MZHouses.OpenApartmentIntercom(buildingCode)
   local options = {}
   for _, unit in ipairs(units) do
     local allowed = unit.allowed == true
+    local canPurchase = unit.canPurchase == true and unit.saleEnabled == true and unit.saleMode == 'direct'
+    local forSale = unit.saleEnabled == true
+    local description = allowed and tostring(unit.label or unit.code)
+      or canPurchase and ('Disponivel para compra: %s'):format(formatCurrency(unit.salePrice))
+      or forSale and ('Venda administrativa: %s'):format(formatCurrency(unit.salePrice))
+      or unit.occupied == true and 'Ocupada'
+      or ('Bloqueado: %s'):format(tostring(unit.reason or 'sem_acesso'))
     options[#options + 1] = {
       title = ('Apartamento %s'):format(tostring(unit.unitNumber or unit.code)),
-      description = allowed and tostring(unit.label or unit.code) or ('Bloqueado: %s'):format(tostring(unit.reason or 'sem_acesso')),
-      icon = allowed and 'door-open' or 'lock',
-      disabled = not allowed,
-      event = 'mz_houses:client:apartmentUnitSelected',
-      args = { code = unit.code }
+      description = description,
+      icon = allowed and 'door-open' or canPurchase and 'house-circle-check' or 'lock',
+      disabled = not allowed and not canPurchase,
+      event = canPurchase and 'mz_houses:client:apartmentUnitPurchaseSelected' or 'mz_houses:client:apartmentUnitSelected',
+      args = { code = unit.code, house = unit, buildingCode = buildingCode }
     }
   end
 
@@ -632,7 +950,7 @@ function MZHouses.OpenApartmentIntercom(buildingCode)
 end
 
 function MZHouses.OpenApartmentGarage(buildingCode, action)
-  local units, err = getApartmentUnits(buildingCode)
+  local units, err = getApartmentUnits(buildingCode, 'garage')
   if not units then
     MZHouses.Notify(('Nao foi possivel abrir garagem: %s'):format(tostring(err)), 'error')
     return false, err
@@ -674,6 +992,116 @@ RegisterNetEvent('mz_houses:client:apartmentUnitSelected', function(payload)
   TriggerEvent('mz_houses:client:enterHouse', payload.code)
 end)
 
+RegisterNetEvent('mz_houses:client:apartmentUnitPurchaseSelected', function(payload)
+  payload = type(payload) == 'table' and payload or {}
+  closeMzMenu()
+  local ok, err = MZHouses.ConfirmPropertyPurchase(payload.code, payload.house, {
+    buildingCode = payload.buildingCode
+  })
+  if not ok and err ~= 'purchase_cancelled' then
+    MZHouses.Notify(('Nao foi possivel comprar: %s'):format(tostring(err or 'erro_desconhecido')), 'error')
+  elseif ok and trim(payload.buildingCode) ~= '' then
+    Wait(150)
+    MZHouses.OpenApartmentIntercom(payload.buildingCode)
+  end
+end)
+
+local function taxMoney(value)
+  local text = tostring(math.max(0, math.floor(tonumber(value) or 0)))
+  while true do
+    local updated, count = text:gsub('^(%-?%d+)(%d%d%d)', '%1.%2')
+    text = updated
+    if count == 0 then break end
+  end
+  return ('R$ %s'):format(text)
+end
+
+function MZHouses.OpenPropertyTax(houseCode)
+  local code = trim(houseCode)
+  if code == '' or not lib or not lib.callback then return false, 'invalid_house' end
+  local ok, response = pcall(function()
+    return lib.callback.await('mz_houses:server:getPropertyTaxStatus', false, { houseCode = code })
+  end)
+  if not ok or type(response) ~= 'table' or response.ok ~= true then
+    return false, type(response) == 'table' and response.error or 'tax_status_failed'
+  end
+  local tax = response.tax or {}
+  local options = {
+    {
+      title = ('Status: %s'):format(tostring(tax.status or 'disabled')),
+      description = ('Valor: %s | Vencimento UTC: %s | Tolerancia: %s'):format(
+        taxMoney(tax.amount), tostring(tax.dueAt or '-'), tostring(tax.graceUntil or '-')),
+      icon = 'landmark', disabled = true
+    },
+    {
+      title = 'Pagar pelo banco',
+      description = ('O servidor confirmara owner, valor e vencimento: %s'):format(taxMoney(tax.amount)),
+      icon = 'credit-card',
+      disabled = tax.enabled ~= true or tax.initialized ~= true or tax.status == 'blocked',
+      onSelect = function()
+        local decision = lib.alertDialog({
+          header = 'Confirmar pagamento do IPTU',
+          content = ('Pagar %s referente a %s? O valor sera relido no servidor.'):format(
+            taxMoney(tax.amount), tostring(tax.label or code)),
+          centered = true, cancel = true
+        })
+        if decision ~= 'confirm' then return end
+        local payOk, payResponse = pcall(function()
+          return lib.callback.await('mz_houses:server:payPropertyTax', false, { houseCode = code })
+        end)
+        if not payOk or type(payResponse) ~= 'table' then
+          return MZHouses.Notify('Falha de comunicacao ao pagar IPTU.', 'error')
+        end
+        MZHouses.Notify(payResponse.message or (payResponse.ok and 'IPTU pago.' or 'Pagamento recusado.'), payResponse.ok and 'success' or 'error')
+        if payResponse.ok then SetTimeout(150, function() MZHouses.OpenPropertyTax(code) end) end
+      end
+    }
+  }
+  for _, payment in ipairs(tax.payments or {}) do
+    options[#options + 1] = {
+      title = ('Pagamento #%s — %s'):format(tostring(payment.id or '?'), tostring(payment.status or '?')),
+      description = ('%s | vencimento=%s | pago=%s'):format(
+        taxMoney(payment.amount), tostring(payment.due_at or '-'), tostring(payment.paid_at or '-')),
+      icon = 'receipt-text'
+    }
+  end
+  openMzContext({ id = 'mz_houses_tax_' .. code, title = 'IPTU - ' .. tostring(tax.label or code), options = options })
+  return true
+end
+
+function MZHouses.OpenPropertyTaxes()
+  if not lib or not lib.callback then return false, 'callback_unavailable' end
+  local ok, response = pcall(function()
+    return lib.callback.await('mz_houses:server:listMyPropertyTaxes', false)
+  end)
+  if not ok or type(response) ~= 'table' or response.ok ~= true then
+    return false, type(response) == 'table' and response.error or 'tax_list_failed'
+  end
+  local options = {}
+  for _, tax in ipairs(response.taxes or {}) do
+    options[#options + 1] = {
+      title = tostring(tax.label or tax.houseCode),
+      description = ('%s | %s | vence=%s'):format(
+        taxMoney(tax.amount), tostring(tax.status or 'disabled'), tostring(tax.dueAt or '-')),
+      icon = (tax.status == 'overdue' or tax.status == 'blocked') and 'triangle-alert' or 'landmark',
+      onSelect = function() MZHouses.OpenPropertyTax(tax.houseCode) end
+    }
+  end
+  if #options == 0 then options[1] = { title = 'Nenhum IPTU ativo', disabled = true } end
+  openMzContext({ id = 'mz_houses_my_taxes', title = 'Meus IPTUs', options = options })
+  return true
+end
+
+RegisterCommand(tostring(((MZHousesConfig or {}).Tax or {}).command or 'iptu'), function()
+  local ok, err = MZHouses.OpenPropertyTaxes()
+  if not ok then MZHouses.Notify(('Nao foi possivel consultar IPTU: %s'):format(tostring(err)), 'error') end
+end, false)
+
+CreateThread(function()
+  Wait(5000)
+  TriggerServerEvent('mz_houses:server:taxPlayerReady')
+end)
+
 RegisterNetEvent('mz_houses:client:apartmentGarageSelected', function(payload)
   payload = type(payload) == 'table' and payload or {}
   closeMzMenu()
@@ -683,7 +1111,8 @@ RegisterNetEvent('mz_houses:client:apartmentGarageSelected', function(payload)
   end
 end)
 
-function MZHouses.EnterHouse(houseCode)
+function MZHouses.EnterHouse(houseCode, options)
+  options = type(options) == 'table' and options or {}
   local house, err, code = MZHouses.GetHouse(houseCode)
   if not house then
     return false, err or 'house_not_found'
@@ -695,6 +1124,10 @@ function MZHouses.EnterHouse(houseCode)
 
   if CurrentHouse.inside == true then
     return false, 'already_inside_house'
+  end
+
+  if options.skipPurchase ~= true and house.saleEnabled == true and tostring(house.saleMode) == 'direct' then
+    return MZHouses.ConfirmPropertyPurchase(code, house)
   end
 
   if GetResourceState('mz_interiors') ~= 'started' then
@@ -742,20 +1175,35 @@ function MZHouses.EnterHouse(houseCode)
 
   MZHouses.Notify(('Entrando: %s'):format(tostring(house.label or code)), 'inform')
 
-  local ok, resultOrErr = exports['mz_interiors']:EnterShell(shellName, entrance, {
-    instanceId = ('house:%s'):format(code),
-    heading = entrance.w,
-    metadata = {
-      houseCode = code,
-      houseLabel = house.label or code,
-      buildingCode = entryContext and entryContext.building and entryContext.building.code or nil,
-      unitNumber = house.unitNumber,
-      status = house.status or 'debug',
-      accessReason = type(accessOrErr) == 'table' and accessOrErr.reason or nil
-    }
-  })
+  local authorizedEntry = type(accessOrErr) == 'table' and type(accessOrErr.entrySpawn) == 'table'
+    and accessOrErr.entrySpawn or { mode = 'default' }
+  local customEntryOffset = authorizedEntry.mode == 'custom' and asVector3(authorizedEntry.coords) or nil
+
+  local callOk, ok, resultOrErr = pcall(function()
+    return exports['mz_interiors']:EnterShell(shellName, entrance, {
+      instanceId = ('house:%s'):format(code),
+      spawnBase = MZHousesConfig.InteriorSpawnBase,
+      --heading = entrance.w,
+      entryOffset = customEntryOffset,
+      entryHeading = customEntryOffset and (tonumber(authorizedEntry.heading) or 0.0) or nil,
+      metadata = {
+        houseCode = code,
+        houseLabel = house.label or code,
+        buildingCode = entryContext and entryContext.building and entryContext.building.code or nil,
+        unitNumber = house.unitNumber,
+        status = house.status or 'debug',
+        accessReason = type(accessOrErr) == 'table' and accessOrErr.reason or nil
+      }
+    })
+  end)
+
+  if not callOk then
+    resultOrErr = ok
+    ok = false
+  end
 
   if not ok then
+    TriggerServerEvent('mz_houses:server:abortEnterHouse')
     MZHouses.Debug('enter_house_failed', {
       house = code,
       shell = shellName,
@@ -764,9 +1212,23 @@ function MZHouses.EnterHouse(houseCode)
     return false, resultOrErr or 'enter_failed'
   end
 
+  local confirmed = false
+  if lib and lib.callback and type(lib.callback.await) == 'function' then
+    local confirmOk, confirmResponse = pcall(function()
+      return lib.callback.await('mz_houses:server:confirmEnterHouse', false, { houseCode = code })
+    end)
+    confirmed = confirmOk and type(confirmResponse) == 'table' and confirmResponse.ok == true
+  end
+  if not confirmed then
+    pcall(function() exports['mz_interiors']:DestroyCurrentInterior({ teleportBack = true, reason = 'house_confirm_failed' }) end)
+    TriggerServerEvent('mz_houses:server:abortEnterHouse')
+    return false, 'entry_confirmation_failed'
+  end
+
   CurrentHouse.inside = true
   CurrentHouse.code = code
   CurrentHouse.data = cloneTable(house)
+  MZHouses.RefreshCurrentFeatureAccess()
 
   local effectiveExit = MZHouses.GetEffectiveHouseExit(CurrentHouse.data)
   if type(effectiveExit) ~= 'table' or not asVector3(effectiveExit.coords) then
@@ -787,41 +1249,76 @@ function MZHouses.EnterHouse(houseCode)
 
   MZHouses.Debug('entered_house', {
     house = code,
-    shell = shellName
+    shell = shellName,
+    entrySpawnMode = customEntryOffset and 'custom' or 'default'
   })
 
   MZHouses.Notify(('Voce entrou em %s.'):format(tostring(house.label or code)), 'success')
   return true, MZHouses.GetCurrentHouse()
 end
 
-function MZHouses.ExitHouse()
-  if GetResourceState('mz_interiors') ~= 'started' then
-    return false, 'interiors_unavailable'
-  end
-
-  local insideByHouse = CurrentHouse.inside == true
-  local insideByInteriors = false
-
-  local insideOk, insideResult = pcall(function()
-    return exports['mz_interiors']:IsInsideInterior()
-  end)
-
-  if insideOk then
-    insideByInteriors = insideResult == true
-  end
-
-  if not insideByHouse and not insideByInteriors then
-    return false, 'not_inside'
-  end
-
-  local ok, resultOrErr = exports['mz_interiors']:ExitShell()
-  if not ok then
-    return false, resultOrErr or 'exit_failed'
-  end
-
+local function resetCurrentHouse()
   CurrentHouse.inside = false
   CurrentHouse.code = nil
   CurrentHouse.data = nil
+end
+
+local function releaseHouseSession(useCallback)
+  local released = false
+  if useCallback ~= false and lib and lib.callback and type(lib.callback.await) == 'function' then
+    local ok, response = pcall(function()
+      return lib.callback.await('mz_houses:server:leaveHouse', false, {})
+    end)
+    released = ok and type(response) == 'table' and response.ok == true
+  end
+
+  if not released then
+    TriggerServerEvent('mz_houses:server:abortEnterHouse')
+  end
+end
+
+local function currentInteriorHouseCode()
+  local interior = getCurrentInterior()
+  local metadata = type(interior) == 'table' and type(interior.metadata) == 'table' and interior.metadata or nil
+  local code = metadata and trim(metadata.houseCode) or ''
+  return code ~= '' and code or nil
+end
+
+local function cleanupHouse(options)
+  options = type(options) == 'table' and options or {}
+  local interiorHouseCode = currentInteriorHouseCode()
+  local belongsToHouse = CurrentHouse.inside == true or interiorHouseCode ~= nil
+  if not belongsToHouse and options.force ~= true then
+    return false, 'not_inside'
+  end
+
+  local shellOk, shellErr = true, nil
+  if options.skipInterior ~= true and GetResourceState('mz_interiors') == 'started' then
+    local callOk, ok, err = pcall(function()
+      if options.destroy == true then
+        return exports['mz_interiors']:DestroyCurrentInterior({
+          teleportBack = options.teleportBack ~= false,
+          reason = options.reason or 'house_cleanup'
+        })
+      end
+      return exports['mz_interiors']:ExitShell()
+    end)
+    shellOk = callOk and ok == true
+    shellErr = callOk and err or ok
+  end
+
+  releaseHouseSession(options.useCallback)
+  resetCurrentHouse()
+
+  if not shellOk then
+    return false, shellErr or 'exit_failed'
+  end
+  return true
+end
+
+function MZHouses.ExitHouse()
+  local ok, err = cleanupHouse({ reason = 'house_exit' })
+  if not ok then return false, err end
 
   MZHouses.Notify('Voce saiu da casa.', 'success')
   return true
@@ -1205,7 +1702,8 @@ local function runStashMarkerLoop()
       local waitMs = 1000
       local stashConfig = MZHousesConfig.Stash or {}
 
-      if stashConfig.enabled == true and CurrentHouse.inside == true and type(CurrentHouse.data) == 'table' then
+      if stashConfig.enabled == true and CurrentHouse.inside == true and type(CurrentHouse.data) == 'table'
+        and (type(CurrentHouse.data.featureAccess) ~= 'table' or CurrentHouse.data.featureAccess.stash == true) then
         local houseStash = MZHouses.GetEffectiveHouseStash(CurrentHouse.data) or {}
         if houseStash.enabled == true then
           local coords = resolveInteriorPointCoords(houseStash)
@@ -1214,7 +1712,8 @@ local function runStashMarkerLoop()
             local playerCoords = GetEntityCoords(ped)
             local markerDistance = tonumber(stashConfig.markerDistance) or 10.0
             local interactDistance = tonumber(stashConfig.interactionDistance) or 2.0
-            local key = tonumber((MZHousesConfig.Interaction or {}).key) or 38
+            local interaction = MZHousesConfig.Interaction or {}
+            local key = tonumber(interaction.enterKey or interaction.key) or 38
             local distance = #(playerCoords - coords)
 
             if distance <= markerDistance then
@@ -1255,7 +1754,8 @@ local function runWardrobeMarkerLoop()
       local waitMs = 1000
       local wardrobeConfig = MZHousesConfig.Wardrobe or {}
 
-      if wardrobeConfig.enabled == true and CurrentHouse.inside == true and type(CurrentHouse.data) == 'table' then
+      if wardrobeConfig.enabled == true and CurrentHouse.inside == true and type(CurrentHouse.data) == 'table'
+        and (type(CurrentHouse.data.featureAccess) ~= 'table' or CurrentHouse.data.featureAccess.wardrobe == true) then
         local houseWardrobe = MZHouses.GetEffectiveHouseWardrobe(CurrentHouse.data) or {}
         if houseWardrobe.enabled == true then
           local coords = resolveInteriorPointCoords(houseWardrobe)
@@ -1264,7 +1764,8 @@ local function runWardrobeMarkerLoop()
             local playerCoords = GetEntityCoords(ped)
             local markerDistance = tonumber(wardrobeConfig.markerDistance) or 10.0
             local interactDistance = tonumber(wardrobeConfig.interactionDistance) or 2.0
-            local key = tonumber((MZHousesConfig.Interaction or {}).key) or 38
+            local interaction = MZHousesConfig.Interaction or {}
+            local key = tonumber(interaction.enterKey or interaction.key) or 38
             local distance = #(playerCoords - coords)
 
             if distance <= markerDistance then
@@ -1314,19 +1815,38 @@ local function runExitMarkerLoop()
             local playerCoords = GetEntityCoords(ped)
             local markerDistance = tonumber(exitConfig.markerDistance) or 10.0
             local interactDistance = tonumber(exitConfig.interactionDistance) or 2.0
-            local key = tonumber((MZHousesConfig.Interaction or {}).key) or 38
+            local interaction = MZHousesConfig.Interaction or {}
+            local key = tonumber(interaction.enterKey or interaction.key) or 38
+            local doorKey = tonumber(interaction.doorKey) or 47
+            local doorDistance = tonumber(interaction.distance) or 2.0
             local distance = #(playerCoords - coords)
 
             if distance <= markerDistance then
               waitMs = 0
               drawExitMarker(coords)
 
+              local onFoot = not IsPedInAnyVehicle(ped, false)
+              if onFoot and distance <= doorDistance then
+                MZHouses.GetDoorContext(CurrentHouse.code, false)
+              end
+              local door = MZHouses.GetDoorPresentation(CurrentHouse.code, CurrentHouse.data)
+              local canUseDoorKey = onFoot and distance <= doorDistance and door.canControl == true
+                and (door.state == 'locked' or door.state == 'unlocked')
+
               if distance <= interactDistance then
+                local doorText = ('Porta: %s'):format(door.stateLabel)
+                if canUseDoorKey and door.actionLabel then
+                  doorText = ('%s | [%s] %s'):format(
+                    doorText,
+                    tostring((MZHousesConfig.Interaction or {}).doorKeyLabel or 'G'),
+                    door.actionLabel
+                  )
+                end
                 local textConfig = exitConfig.text or {}
                 if textConfig.enabled ~= false then
                   drawText3d(
                     vector3(coords.x, coords.y, coords.z + (tonumber(textConfig.offsetZ) or 0.4)),
-                    ('[E] %s'):format(tostring(houseExit.label or 'Sair da casa')),
+                    ('[E] %s | %s'):format(tostring(houseExit.label or 'Sair da casa'), doorText),
                     tonumber(textConfig.scale) or 0.32
                   )
                 end
@@ -1337,6 +1857,13 @@ local function runExitMarkerLoop()
                     MZHouses.Notify(('Nao foi possivel sair: %s'):format(tostring(err or 'erro_desconhecido')), 'error')
                   end
                   Wait(500)
+                end
+              end
+
+              if canUseDoorKey then
+                DisableControlAction(0, doorKey, true)
+                if IsDisabledControlJustReleased(0, doorKey) then
+                  MZHouses.ToggleDoor(CurrentHouse.code)
                 end
               end
             end
@@ -1368,7 +1895,8 @@ local function runGarageMarkerLoop()
           if code ~= '' and houseGarage and houseGarage.enabled == true then
             local entry = asVector3(houseGarage.entry)
             local store = asVector3(houseGarage.store)
-            local key = tonumber((MZHousesConfig.Interaction or {}).key) or 38
+            local interaction = MZHousesConfig.Interaction or {}
+            local key = tonumber(interaction.enterKey or interaction.key) or 38
 
             if not isDriver and entry then
               local distance = #(playerCoords - entry)
@@ -1641,6 +2169,23 @@ end)
 RegisterNetEvent('mz_core:client:playerLoaded', function()
   MZHouses.RefreshVisibleHouses(true)
   TriggerEvent('mz_houses:client:visibilityUpdated', 'player_loaded')
+  TriggerServerEvent('mz_houses:server:taxPlayerReady')
+end)
+
+RegisterNetEvent('mz_houses:client:taxNotice', function(payload)
+  payload = type(payload) == 'table' and payload or {}
+  local status = tostring(payload.status or 'due')
+  local message
+  if payload.nearDue == true then
+    message = ('IPTU de %s vence em breve: %s, vencimento %s. Use /%s.'):format(
+      tostring(payload.label or payload.houseCode), taxMoney(payload.amount), tostring(payload.dueAt or '-'),
+      tostring(((MZHousesConfig or {}).Tax or {}).command or 'iptu'))
+  else
+    message = ('IPTU de %s: status %s, valor %s, vencimento %s. Use /%s.'):format(
+      tostring(payload.label or payload.houseCode), status, taxMoney(payload.amount),
+      tostring(payload.dueAt or '-'), tostring(((MZHousesConfig or {}).Tax or {}).command or 'iptu'))
+  end
+  MZHouses.Notify(message, (status == 'overdue' or status == 'blocked') and 'error' or 'warning')
 end)
 
 RegisterNetEvent('mz_houses:client:enterHouse', function(houseCode)
@@ -1650,20 +2195,70 @@ RegisterNetEvent('mz_houses:client:enterHouse', function(houseCode)
   end
 end)
 
-RegisterNetEvent('mz_houses:client:listingInfo', function(houseCode)
+function MZHouses.OpenDoorMenu(houseCode)
   local code = trim(houseCode)
-  if code == '' then
-    return
+  local context, contextErr = MZHouses.GetDoorContext(code, true)
+  if not context then return false, contextErr or 'door_context_failed' end
+  local stateLabel = MZHouses.DoorStateLabel(context.state)
+  local options = {
+    { title = 'Entrar', description = ('Porta: %s'):format(stateLabel), icon = 'door-open', onSelect = function()
+      TriggerEvent('mz_houses:client:enterHouse', code)
+    end }
+  }
+  if context.canControl == true and context.state ~= 'blocked' then
+    local actionLabel = MZHouses.DoorActionLabel(context.state)
+    options[#options + 1] = {
+      title = actionLabel, icon = context.state == 'unlocked' and 'lock' or 'lock-open',
+      onSelect = function()
+        MZHouses.ToggleDoor(code)
+      end
+    }
   end
+  openMzContext({ id = 'mz_houses_door_' .. code, title = ('Entrada — Porta %s'):format(stateLabel:lower()), options = options })
+  return true
+end
 
-  -- TODO: fase futura mz_realestate / corretor: abrir menu de compra/visita.
-  MZHouses.Notify(('Imovel listado: %s. Compra/visita ainda nao implementada.'):format(code), 'inform')
+RegisterNetEvent('mz_houses:client:doorMenu', function(payload)
+  local code = type(payload) == 'table' and (payload.code or payload[1]) or payload
+  local ok, err = MZHouses.OpenDoorMenu(code)
+  if not ok then MZHouses.Notify(friendlyDoorError(err), 'error') end
+end)
+
+RegisterNetEvent('mz_houses:client:doorStateChanged', function(payload)
+  payload = type(payload) == 'table' and payload or {}
+  local code = trim(payload.houseCode)
+  if code == '' then return end
+  applyDoorContext(code, payload.state, nil, 0)
+  CreateThread(function()
+    MZHouses.RefreshVisibleHouses(true)
+    local house = findVisibleHouse(code)
+    if type(house) == 'table' then house.doorState = normalizeDoorState(payload.state) end
+    TriggerEvent('mz_houses:client:doorVisibilityRefreshed', {
+      houseCode = code,
+      house = house or false
+    })
+  end)
+end)
+
+RegisterNetEvent('mz_houses:client:featurePolicyChanged', function(payload)
+  payload = type(payload) == 'table' and payload or {}
+  if CurrentHouse.inside ~= true or trim(CurrentHouse.code) ~= trim(payload.houseCode) then return end
+  CreateThread(function()
+    MZHouses.RefreshCurrentFeatureAccess()
+  end)
 end)
 
 RegisterNetEvent('mz_houses:client:exitHouse', function()
   local ok, err = MZHouses.ExitHouse()
   if not ok then
     MZHouses.Notify(('Nao foi possivel sair: %s'):format(tostring(err or 'erro_desconhecido')), 'error')
+  end
+end)
+
+RegisterNetEvent('mz_houses:client:forceExit', function(reason)
+  if CurrentHouse.inside == true or currentInteriorHouseCode() ~= nil then
+    MZHouses.Notify(('Acesso a propriedade atualizado: %s'):format(tostring(reason or 'alterado')), 'warning')
+    cleanupHouse({ reason = reason or 'force_exit' })
   end
 end)
 
@@ -1699,15 +2294,47 @@ exports('OpenHouseGarage', function(houseCode, action)
   return MZHouses.OpenHouseGarage(houseCode, action)
 end)
 
+exports('OpenPropertyTax', function(houseCode)
+  if trim(houseCode) ~= '' then return MZHouses.OpenPropertyTax(houseCode) end
+  return MZHouses.OpenPropertyTaxes()
+end)
+
 AddEventHandler('onResourceStop', function(resource)
-  if resource ~= GetCurrentResourceName() then
+  if resource == GetCurrentResourceName() then
+    cleanupHouse({
+      force = CurrentHouse.inside == true,
+      destroy = true,
+      useCallback = false,
+      reason = 'houses_resource_stop'
+    })
     return
   end
 
-  if CurrentHouse.inside == true and GetResourceState('mz_interiors') == 'started' then
-    pcall(function()
-      exports['mz_interiors']:ExitShell()
-    end)
+  if resource == 'mz_interiors' and CurrentHouse.inside == true then
+    cleanupHouse({ force = true, skipInterior = true, useCallback = false, reason = 'interiors_resource_stop' })
+  end
+end)
+
+AddEventHandler('baseevents:onPlayerDied', function()
+  if CurrentHouse.inside == true then MZHouses.ExitHouse() end
+end)
+
+AddEventHandler('baseevents:onPlayerKilled', function()
+  if CurrentHouse.inside == true then MZHouses.ExitHouse() end
+end)
+
+CreateThread(function()
+  local handledDeath = false
+  while true do
+    Wait(CurrentHouse.inside == true and 500 or 1500)
+    if CurrentHouse.inside == true and IsEntityDead(PlayerPedId()) then
+      if not handledDeath then
+        handledDeath = true
+        MZHouses.ExitHouse()
+      end
+    else
+      handledDeath = false
+    end
   end
 end)
 

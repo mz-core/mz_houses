@@ -1,0 +1,2267 @@
+COMANDOS/PROMPTS PARA EXECUTAR O PLANO DO MZ_HOUSES NO VS CODE/CODEX
+
+Workspace:
+D:\git-hub\repo_oficial
+
+Plano oficial:
+D:\git-hub\repo_oficial\mz_houses\docs\UNIVERSAL_PROPERTIES_PLAN.md
+
+REGRA DE USO
+
+- Execute somente uma fase por conversa/execução do Codex.
+- Depois da implementação, teste no FiveM.
+- Não avance enquanto houver erro runtime.
+- Sempre peça para atualizar o plano.
+- Não use Git ou histórico como fonte principal.
+- Não deixe o agente avançar automaticamente para a fase seguinte.
+
+==================================================
+COMANDO 1 — FASE 0
+==================================================
+
+Leia integralmente e siga como fonte de verdade:
+
+D:\git-hub\repo_oficial\mz_houses\docs\UNIVERSAL_PROPERTIES_PLAN.md
+
+Implemente somente a Fase 0 — Estabilização e invariantes multiusuário.
+
+Antes de editar:
+
+1. Inspecione os arquivos reais atuais de:
+   - mz_houses
+   - mz_interiors
+2. Não use Git, commits, branches, histórico ou versões antigas como fonte.
+3. Confirme a divergência entre:
+   - routing bucket compartilhado por propriedade no mz_houses;
+   - origem baseada em PlayerId/jitter no getSpawnBase do mz_interiors.
+4. Preserve as correções já feitas de:
+   - spawn interno padrão;
+   - spawn interno personalizado;
+   - origem lógica spawnCoords;
+   - saída;
+   - baú;
+   - guarda-roupa;
+   - heading;
+   - preview administrativo.
+
+Implemente somente:
+
+- origem determinística quando mz_houses fornecer spawnBase;
+- mesma origem interna para todos os jogadores da mesma propriedade;
+- isolamento entre propriedades distintas;
+- cleanup consistente de sessão, shell e bucket;
+- compatibilidade com preview;
+- atualização do TEST_PLAN.md;
+- atualização da tabela “Controle de execução” do plano.
+
+Não implemente nesta execução:
+
+- gang;
+- job;
+- interior público;
+- portas;
+- chaves avançadas;
+- preço;
+- compra;
+- apartamentos comerciais;
+- IPTU.
+
+Execute o validador disponível e entregue:
+
+1. causa encontrada;
+2. arquivos alterados;
+3. funções alteradas;
+4. testes estáticos;
+5. checklist runtime;
+6. riscos;
+7. confirmação explícita de que não avançou para a Fase 1.
+
+==================================================
+COMANDO 2 — REVISÃO DA FASE 0
+==================================================
+
+Leia:
+
+D:\git-hub\repo_oficial\mz_houses\docs\UNIVERSAL_PROPERTIES_PLAN.md
+
+Faça uma revisão técnica somente da implementação da Fase 0.
+
+Não implemente novas funcionalidades.
+
+Verifique:
+
+- se PlayerId/jitter ainda afeta sessões gerenciadas pelo mz_houses;
+- se preview continua isolado;
+- se duas pessoas da mesma propriedade recebem spawnCoords idêntico;
+- se propriedades diferentes continuam isoladas;
+- se o spawn personalizado continua usando a origem lógica correta;
+- se saída, baú e guarda-roupa continuam corretos;
+- se restart, morte e disconnect executam cleanup;
+- se não houve implementação antecipada da Fase 1.
+
+Corrija apenas defeitos encontrados na Fase 0.
+
+Execute o validador e atualize o plano somente se necessário.
+
+==================================================
+COMANDO 3 — FASE 1
+==================================================
+
+Execute este comando somente depois do teste runtime aprovado da Fase 0.
+
+Leia integralmente:
+
+D:\git-hub\repo_oficial\mz_houses\docs\UNIVERSAL_PROPERTIES_PLAN.md
+
+Implemente somente a Fase 1 — Tipos universais e políticas de acesso.
+
+Objetivos:
+
+- criar access_json;
+- manter casas antigas com fallback residencial;
+- criar evaluator server-side único;
+- suportar:
+  - owner;
+  - gang específica;
+  - job específico;
+  - público;
+  - admin;
+  - múltiplas regras com match any;
+- listar gangs/jobs a partir dos contratos reais do projeto;
+- permitir grade mínima;
+- permitir requireDuty para job quando o contrato real suportar;
+- adicionar templates no /mzhouses:
+  - residência;
+  - apartamento;
+  - prédio;
+  - sede de gang;
+  - sede de job;
+  - interior público;
+  - interior administrativo.
+
+Regras:
+
+- não reativar cegamente o legado org_base/gang_base/business;
+- não inventar exports de grupos;
+- criar adapter fino para a fonte real encontrada;
+- gang/job/público/admin não recebem compra ou IPTU;
+- public continua sendo visibilidade, não autorização;
+- registros antigos sem access_json continuam funcionando;
+- servidor é autoridade;
+- não implemente portas nem comércio nesta execução.
+
+Criar migration incremental:
+
+003_universal_access.sql
+
+Atualizar:
+
+- repository;
+- service;
+- main;
+- admin menu;
+- documentação;
+- TEST_PLAN.md;
+- tabela de controle do plano.
+
+Entregar relatório completo e declarar que não avançou para a Fase 2.
+
+==================================================
+COMANDO 4 — REVISÃO DA FASE 1
+==================================================
+
+Faça auditoria somente da Fase 1 do plano:
+
+D:\git-hub\repo_oficial\mz_houses\docs\UNIVERSAL_PROPERTIES_PLAN.md
+
+Não implemente portas, compra ou IPTU.
+
+Verifique:
+
+- gang A entra apenas na sede autorizada;
+- gang B é bloqueada;
+- job correto entra;
+- grade mínima é aplicada no servidor;
+- requireDuty usa contrato real;
+- interior público funciona sem owner/chave;
+- interior administrativo bloqueia player comum;
+- casas antigas continuam funcionando;
+- propriedades antigas de org sem access_json continuam bloqueadas;
+- nenhum dado sensível de regra é confiado ao client;
+- migration é idempotente e não destrutiva.
+
+Corrija somente problemas da Fase 1 e atualize o plano.
+
+==================================================
+COMANDO 5 — FASE 2
+==================================================
+
+Execute somente após runtime aprovado da Fase 1.
+
+Leia:
+
+D:\git-hub\repo_oficial\mz_houses\docs\UNIVERSAL_PROPERTIES_PLAN.md
+
+Implemente somente a Fase 2 — Portas e chaves avançadas.
+
+Objetivos:
+
+- criar door_json;
+- estados:
+  - locked;
+  - unlocked;
+  - blocked;
+- preservar role das chaves;
+- converter role legado key para access na leitura;
+- suportar:
+  - chave access;
+  - chave control;
+- criar CanControlDoor;
+- owner/admin/control key controlam porta;
+- job/gang controlam conforme grade da regra;
+- unlocked permite visitante entrar;
+- visitante não recebe recursos automaticamente;
+- blocked permite somente admin;
+- persistir e sincronizar estado;
+- registrar logs.
+
+Migration:
+
+004_property_doors.sql
+
+Não implemente comércio, compra ou IPTU.
+
+Atualize documentação, testes e controle de execução.
+
+==================================================
+COMANDO 6 — FASE 3
+==================================================
+
+Execute somente após a Fase 2 estar aprovada em runtime e auditada.
+
+Leia integralmente:
+
+D:\git-hub\repo_oficial\mz_houses\docs\UNIVERSAL_PROPERTIES_PLAN.md
+
+Implemente somente a Fase 3 — Permissões por recurso.
+
+Antes de editar:
+
+1. Inspecione os arquivos reais atuais do mz_houses.
+2. Não use Git, commits, branches ou histórico como fonte principal.
+3. Preserve integralmente as implementações aprovadas das Fases 0, 1 e 2.
+4. Não altere a autorização principal de entrada sem necessidade.
+5. Não avance para comércio, compra, apartamentos comerciais ou IPTU.
+
+OBJETIVO
+
+Usar `access_json.features` para separar a autorização dos recursos internos:
+
+- stash/baú;
+- wardrobe/guarda-roupa;
+- garage/garagem.
+
+A autorização para entrar na propriedade continua sendo controlada por:
+
+- política principal de acesso;
+- owner/chaves;
+- gang/job;
+- estado da porta;
+- guest de porta destrancada;
+- admin.
+
+Não criar um segundo evaluator concorrente para a entrada.
+
+REGRAS DE COMPATIBILIDADE
+
+Preservar:
+
+- casas antigas sem `access_json`;
+- owner e chaves residenciais existentes;
+- políticas gang/job/public/admin;
+- estados `locked`, `unlocked` e `blocked`;
+- chaves `access` e `control`;
+- role legado `key` normalizado para `access`;
+- visitante `isGuest=true`;
+- separação entre `CanSeeHouse` e `CanEnterHouse`;
+- E entrando diretamente em casa/unidade;
+- E abrindo interfone em prédio;
+- E saindo dentro da propriedade;
+- G somente próximo da entrada ou saída;
+- ausência de key mapping global;
+- animação de chave;
+- cooldown e proteção contra spam;
+- sincronização e persistência da porta.
+
+POLÍTICAS DE RECURSO
+
+Criar uma estrutura clara dentro de `access_json.features`.
+
+Modelo conceitual:
+
+{
+  "features": {
+    "stash": {
+      "mode": "inherit"
+    },
+    "wardrobe": {
+      "mode": "inherit"
+    },
+    "garage": {
+      "mode": "inherit"
+    }
+  }
+}
+
+Modos recomendados:
+
+- `inherit`: herda a autorização normal da propriedade;
+- `disabled`: recurso desativado;
+- `owner`: somente owner;
+- `keys`: owner e portadores de chave;
+- `rules`: usa regras próprias de gang/job/grade/duty;
+- `public`: qualquer jogador dentro da propriedade;
+- `admin`: somente admin.
+
+Adapte à estrutura definida no plano e ao código real.
+
+Não invente modos desnecessários.
+
+DEFAULTS
+
+Casas residenciais antigas:
+
+- owner entra e usa recursos;
+- chave residencial autorizada mantém o comportamento anterior;
+- guest de porta `unlocked` não recebe acesso automático;
+- nenhuma casa antiga deve perder stash, wardrobe ou garagem.
+
+Gang/job:
+
+- recursos usam `inherit` por padrão;
+- permitir grade mínima diferente por recurso;
+- permitir `requireDuty` quando aplicável ao job.
+
+Interior público:
+
+- entrada pública não torna automaticamente stash, wardrobe ou garagem públicos;
+- recursos ficam desativados ou restritos conforme configuração explícita.
+
+Interior administrativo:
+
+- permanece exclusivo;
+- não expor recursos a jogador comum.
+
+GUEST
+
+Regra obrigatória:
+
+- guest pode entrar quando a porta estiver `unlocked`;
+- guest não usa stash;
+- guest não usa wardrobe;
+- guest não usa garagem;
+- somente uma política de recurso explicitamente `public` pode liberar um recurso para guest.
+
+A sessão `isGuest` deve ser revalidada no servidor.
+
+EVALUATOR
+
+Criar ou consolidar uma função server-side única, conceitualmente:
+
+CanAccessPropertyFeature(source, property, featureName, session)
+
+Ela deve:
+
+1. validar player;
+2. validar propriedade;
+3. validar sessão interna correspondente;
+4. validar feature solicitada;
+5. ler a política normalizada;
+6. considerar owner, chave, gang, job, grade, duty e admin;
+7. considerar `isGuest`;
+8. retornar resultado e motivo canônico;
+9. não confiar em flags enviadas pelo client.
+
+Usar a mesma função para:
+
+- stash;
+- wardrobe;
+- garage.
+
+Não duplicar evaluators diferentes em cada integração.
+
+STASH
+
+Antes de abrir:
+
+- jogador deve estar dentro da propriedade correspondente;
+- sessão deve estar confirmada;
+- feature stash deve estar habilitada;
+- política deve autorizar;
+- stash ID existente deve ser preservado;
+- não alterar IDs que possam causar perda de itens.
+
+WARDROBE
+
+Antes de abrir:
+
+- validar sessão;
+- validar propriedade;
+- validar política da feature;
+- preservar integração real com mz_clothing;
+- não permitir callback client forjado.
+
+GARAGEM
+
+Antes de abrir:
+
+- validar propriedade;
+- validar sessão/contexto correto;
+- validar política da feature;
+- preservar contrato real de mz_garagem;
+- guest não acessa por padrão;
+- garagem externa deve seguir a política definida no plano sem confiar no client.
+
+MENU ADMINISTRATIVO
+
+Adicionar em `/mzhouses` uma seção:
+
+Recursos e permissões
+├─ Baú
+│  ├─ Ativado/Desativado
+│  ├─ Herdar acesso
+│  ├─ Somente owner/chaves
+│  └─ Regras específicas
+├─ Guarda-roupa
+└─ Garagem
+
+Para regras gang/job:
+
+- selecionar grupos reais do mz_core;
+- grade mínima;
+- requireDuty para jobs;
+- múltiplas regras com match `any` quando suportado.
+
+Mostrar um resumo antes de salvar.
+
+SEGURANÇA
+
+- servidor autoritativo;
+- revalidar feature em toda abertura;
+- não confiar em interação escondida no client;
+- rate limit por recurso;
+- logs de negativas e alterações administrativas;
+- não enviar políticas sensíveis no payload público;
+- não permitir property code forjado;
+- não permitir uso de recurso de outra casa;
+- não permitir guest reutilizar sessão depois de sair.
+
+CLIENT
+
+Esconder interação quando o client souber que o recurso está desativado ou não autorizado.
+
+Isso é apenas UX.
+
+O servidor deve continuar bloqueando mesmo se o jogador disparar o evento manualmente.
+
+Não alterar a UX da porta da Fase 2.
+
+BANCO
+
+Não criar coluna nova se `access_json.features` for suficiente.
+
+Não criar migration sem necessidade real.
+
+Se a estrutura atual exigir normalização, fazê-la sem regravar automaticamente propriedades antigas.
+
+TESTES OBRIGATÓRIOS
+
+1. Casa antiga:
+   - owner usa stash, wardrobe e garagem;
+   - chave mantém comportamento legado.
+
+2. Guest em porta unlocked:
+   - entra;
+   - não usa stash;
+   - não usa wardrobe;
+   - não usa garagem.
+
+3. Owner:
+   - usa recursos em modo inherit.
+
+4. Chave access:
+   - comportamento conforme default residencial documentado.
+
+5. Gang:
+   - grade 0 entra;
+   - stash exige grade 2;
+   - grade 0 não abre stash;
+   - grade 2 abre.
+
+6. Job:
+   - entrada grade 0;
+   - wardrobe exige grade 1 e on-duty;
+   - off-duty é bloqueado.
+
+7. Recurso disabled:
+   - interação some;
+   - evento manual é bloqueado.
+
+8. Recurso public explícito:
+   - guest dentro usa somente esse recurso;
+   - outros continuam bloqueados.
+
+9. Propriedades diferentes:
+   - jogador não usa stash/wardrobe/garage de outra propriedade.
+
+10. Saída e retorno:
+    - sessão antiga não autoriza recurso.
+
+11. Remover chave ou membership durante a sessão:
+    - próxima tentativa é revalidada e bloqueada.
+
+12. Restart:
+    - políticas persistem;
+    - defaults antigos continuam funcionando.
+
+13. Porta:
+    - E e G continuam funcionando exatamente como na Fase 2.
+
+14. Dois jogadores:
+    - políticas são avaliadas individualmente.
+
+VALIDAÇÃO
+
+Execute:
+
+powershell -ExecutionPolicy Bypass -File D:\git-hub\repo_oficial\mz_houses\tools\validate.ps1
+
+Atualize:
+
+- README.md;
+- docs/ADMIN_GUIDE.md;
+- docs/TEST_PLAN.md;
+- docs/UNIVERSAL_PROPERTIES_PLAN.md;
+- tabela de controle de execução.
+
+RELATÓRIO FINAL
+
+Entregue:
+
+1. diagnóstico encontrado;
+2. formato final de `access_json.features`;
+3. defaults de compatibilidade;
+4. arquivos criados;
+5. arquivos alterados;
+6. evaluator criado/modificado;
+7. regras de guest;
+8. regras de stash;
+9. regras de wardrobe;
+10. regras de garagem;
+11. alterações no menu;
+12. testes estáticos;
+13. checklist runtime;
+14. riscos;
+15. confirmação explícita de que não alterou a UX da porta;
+16. confirmação explícita de que não avançou para preço, compra, apartamentos comerciais ou IPTU.
+
+==================================================
+COMANDO 7 — FASE 4
+==================================================
+
+Execute somente após a Fase 3 estar aprovada em runtime e auditada.
+
+Leia integralmente:
+
+D:\git-hub\repo_oficial\mz_houses\docs\UNIVERSAL_PROPERTIES_PLAN.md
+
+Implemente somente a Fase 4 — Comércio residencial.
+
+ANTES DE EDITAR
+
+1. Inspecione os arquivos reais atuais do mz_houses e mz_core.
+2. Não use Git, commits, branches ou histórico como fonte principal.
+3. Preserve integralmente as Fases 0, 1, 2 e 3.
+4. Não altere a UX aprovada de porta sem necessidade.
+5. Não implemente IPTU ou gestão em lote de apartamentos nesta execução.
+
+OBJETIVOS
+
+Implementar comércio somente para propriedades residenciais individuais:
+
+- house;
+- apartment_unit/apartment, conforme categorias reais encontradas.
+
+Adicionar:
+
+- sale_enabled;
+- sale_mode:
+  - none;
+  - admin;
+  - direct;
+- sale_price;
+- preço durante o wizard de criação residencial;
+- edição de preço;
+- colocar à venda;
+- retirar da venda;
+- compra direta;
+- venda administrativa;
+- histórico persistente de transações;
+- lock contra compras simultâneas;
+- rollback/refund seguro.
+
+REGRAS DE ELEGIBILIDADE
+
+Somente pode ser vendida propriedade que:
+
+- seja residencial;
+- não seja building;
+- não seja gang;
+- não seja job;
+- não seja public;
+- não seja administrative;
+- use política residencial/owner;
+- esteja ativa;
+- não esteja archived;
+- não possua owner;
+- possua sale_enabled=true;
+- possua sale_price > 0;
+- possua sale_mode válido.
+
+Rejeitar server-side qualquer tentativa de venda fora dessas regras.
+
+VISIBILIDADE
+
+Integrar com CanSeeHouse sem misturar visibilidade e autorização:
+
+- sale_enabled=true torna a residência visível para todos;
+- isso não concede acesso ao interior;
+- casa à venda e locked continua sem permitir entrada;
+- casa à venda não deve permitir guest apenas por estar à venda;
+- unlocked continua seguindo a regra de guest da porta.
+
+PAYLOAD PÚBLICO
+
+Enviar somente informações comerciais necessárias:
+
+- houseCode;
+- label;
+- saleEnabled;
+- saleMode;
+- salePrice;
+- status visual;
+- doorState quando já permitido pelo fluxo atual.
+
+Não enviar:
+
+- access_json;
+- regras de gang/job;
+- chaves;
+- metadata administrativa;
+- dados privados do owner.
+
+UX NA ENTRADA
+
+Preservar:
+
+- G somente próximo da porta;
+- animação de chave;
+- E para entrar/sair/interfone.
+
+Para residência disponível em sale_mode=direct e sem owner:
+
+Mostrar algo equivalente a:
+
+[E] Comprar | R$ 250.000 | Porta: Trancada
+
+Ao apertar E:
+
+- não tentar entrar;
+- abrir confirmação de compra;
+- mostrar nome e preço;
+- solicitar confirmação;
+- servidor busca novamente preço e estado;
+- nunca confiar no valor enviado pelo client.
+
+Para sale_mode=admin:
+
+- pode aparecer “À venda — R$ X”;
+- não permitir compra direta;
+- manter ação administrativa pelo /mzhouses.
+
+Definir claramente precedência da ação E:
+
+1. propriedade residencial à venda em modo direct e sem owner:
+   E abre compra;
+2. prédio:
+   E abre interfone;
+3. propriedade normal:
+   E tenta entrar;
+4. dentro:
+   E sai.
+
+FINANCEIRO
+
+Criar adapter fino baseado nos contratos reais do mz_core.
+
+Não inventar APIs.
+
+Confirmar:
+
+- como consultar saldo bancário;
+- como remover dinheiro;
+- como adicionar/devolver dinheiro;
+- como registrar metadata/reason;
+- se existe transação nativa no core.
+
+Pagamento padrão:
+
+- banco;
+- não usar dinheiro físico nesta fase, salvo se o plano real exigir.
+
+Nunca confiar no client para:
+
+- preço;
+- saldo;
+- citizenid;
+- owner;
+- property code válido;
+- sale mode.
+
+CONCORRÊNCIA
+
+A compra deve ser atômica ou possuir compensação segura.
+
+Fluxo:
+
+1. adquirir lock da propriedade;
+2. reler propriedade;
+3. validar elegibilidade;
+4. validar ausência de owner;
+5. validar preço;
+6. validar saldo;
+7. registrar transação pending;
+8. remover dinheiro;
+9. definir owner;
+10. desativar sale_enabled;
+11. atualizar cache;
+12. registrar transaction completed;
+13. liberar acesso imediatamente;
+14. liberar lock.
+
+Em falha:
+
+- não deixar owner parcial;
+- devolver dinheiro quando necessário;
+- registrar transaction failed/refunded;
+- liberar lock em todos os caminhos.
+
+Evitar dupla compra por:
+
+- dois jogadores;
+- callback repetido;
+- spam de E;
+- reconnect;
+- restart.
+
+OWNER
+
+Ao definir owner por compra:
+
+- sale_enabled=false;
+- sale_mode=none ou manter histórico separado, conforme plano;
+- acesso residencial atualizado imediatamente;
+- chaves antigas devem ser tratadas conforme regra documentada;
+- door state não deve ser alterado automaticamente sem decisão explícita.
+
+Ao remover owner administrativamente:
+
+- não reativar venda automaticamente;
+- admin deve colocar à venda novamente.
+
+VENDA ADMINISTRATIVA
+
+No /mzhouses:
+
+- selecionar propriedade;
+- mostrar preço;
+- selecionar player online ou citizenid conforme contrato real;
+- escolher:
+  - cobrar pelo banco;
+  - atribuir sem cobrança, usando fluxo atual separado;
+- confirmar;
+- executar as mesmas validações e logs.
+
+Não misturar:
+
+- “Atribuir proprietário sem cobrança”;
+- “Vender e cobrar”.
+
+MIGRATION
+
+Criar migration incremental e idempotente:
+
+005_property_commerce.sql
+
+Adicionar somente campos realmente necessários, por exemplo:
+
+- sale_enabled;
+- sale_mode;
+- sale_price.
+
+Criar tabela:
+
+mz_house_transactions
+
+Campos mínimos conceituais:
+
+- id;
+- property_code/property_id;
+- buyer_citizenid;
+- seller_type;
+- amount;
+- payment_method;
+- status;
+- transaction_type;
+- metadata_json;
+- created_at;
+- completed_at.
+
+Adicionar índices adequados.
+
+Não apagar colunas antigas.
+
+LOGS
+
+Registrar:
+
+- property.sale.enabled;
+- property.sale.disabled;
+- property.purchase.started;
+- property.purchase.completed;
+- property.purchase.failed;
+- property.purchase.refunded;
+- property.sale.admin.completed.
+
+Usar logger real existente.
+
+COMPATIBILIDADE COM FASE 3
+
+Após compra:
+
+- owner usa recursos conforme access_json.features;
+- guest continua sem recursos;
+- nenhuma feature é tornada pública automaticamente;
+- stash ID não muda;
+- wardrobe e garagem preservam configuração.
+
+NÃO IMPLEMENTAR
+
+- preço padrão de prédio;
+- criação em lote de unidades;
+- alteração em lote de apartamentos;
+- IPTU;
+- aluguel;
+- financiamento;
+- revenda entre players;
+- comissão;
+- imobiliária;
+- banco empresarial.
+
+TESTES OBRIGATÓRIOS
+
+1. Criar casa com preço no wizard.
+2. Criar casa com preço zero:
+   - direct rejeitado.
+3. Casa direct sem owner:
+   - aparece para todos;
+   - E abre compra.
+4. Saldo insuficiente:
+   - não remove dinheiro;
+   - não cria owner.
+5. Saldo suficiente:
+   - cobra;
+   - atribui owner;
+   - desativa venda;
+   - libera acesso.
+6. Dois jogadores comprando simultaneamente:
+   - somente um conclui.
+7. Falha depois da cobrança:
+   - refund.
+8. Gang/job/public/admin:
+   - não podem ser colocados à venda.
+9. Building:
+   - não pode ser vendido.
+10. Casa sale_mode=admin:
+    - não compra pela entrada.
+11. Remover owner:
+    - não reativa venda.
+12. Porta e G:
+    - continuam funcionando.
+13. Guest:
+    - não ganha recursos.
+14. Restart:
+    - preço, estado e transação persistem.
+15. Evento forjado com preço menor:
+    - servidor usa preço real.
+
+VALIDAÇÃO
+
+Execute o validate.ps1.
+
+Atualize:
+
+- README.md;
+- ADMIN_GUIDE.md;
+- TEST_PLAN.md;
+- UNIVERSAL_PROPERTIES_PLAN.md;
+- tabela de controle.
+
+RELATÓRIO FINAL
+
+Entregue:
+
+1. contratos financeiros reais encontrados;
+2. migration;
+3. formato comercial final;
+4. fluxo da compra direta;
+5. fluxo da venda administrativa;
+6. lock e concorrência;
+7. rollback/refund;
+8. UX da entrada;
+9. arquivos alterados;
+10. testes estáticos;
+11. checklist runtime;
+12. riscos;
+13. confirmação de que não implementou Fase 5 ou IPTU.
+
+==================================================
+COMANDO 8 — FASE 5 (VERSÃO REVISADA)
+==================================================
+
+Execute somente depois de a Fase 4 estar:
+
+- aprovada em runtime após a auditoria final;
+- marcada no plano como “Concluída e aprovada em runtime”;
+- com `CommerceDebug=false` por padrão.
+
+Leia integralmente:
+
+D:\git-hub\repo_oficial\mz_houses\docs\UNIVERSAL_PROPERTIES_PLAN.md
+
+Implemente somente a Fase 5 — Comércio e gestão em lote de apartamentos.
+
+Não avance para IPTU.
+Não implemente aluguel, financiamento, condomínio ou revenda entre jogadores.
+Não use Git, commits, branches ou histórico como fonte principal.
+Inspecione os arquivos reais atuais do workspace.
+
+==================================================
+1. PRESERVAÇÃO OBRIGATÓRIA
+==================================================
+
+Preserve integralmente as Fases 0 a 4:
+
+- origem determinística dos interiores;
+- buckets e cleanup;
+- access_json;
+- owner, chaves, gang, job, público e admin;
+- door_json;
+- estados locked, unlocked e blocked;
+- chaves access e control;
+- guest;
+- CanSeeHouse separado de CanEnterHouse;
+- E para entrar, sair e abrir interfone;
+- G somente próximo da porta;
+- ausência de key mapping global;
+- animação de chave;
+- cooldown;
+- access_json.features;
+- stash;
+- wardrobe;
+- garagem;
+- comércio residencial individual;
+- lock;
+- CAS;
+- máquina de estados financeira;
+- refund;
+- manual_review;
+- recovery após restart.
+
+Não reescreva ou duplique o comércio da Fase 4.
+
+==================================================
+2. MODELO DE PRÉDIO E UNIDADE
+==================================================
+
+O prédio é apenas agrupador e ponto de acesso:
+
+- não possui owner residencial;
+- não é vendável;
+- não é comprado;
+- não recebe sale_enabled para venda própria;
+- não possui sale_price de venda própria;
+- não paga IPTU;
+- possui entrada;
+- possui porta própria;
+- possui interfone;
+- pode armazenar defaults para a criação de novas unidades.
+
+Cada unidade é uma propriedade independente:
+
+- código próprio;
+- building_code/parent_code;
+- número da unidade;
+- andar quando existir estrutura confiável;
+- owner próprio;
+- chaves próprias;
+- access_json próprio;
+- door_json próprio;
+- sale_enabled próprio;
+- sale_mode próprio;
+- sale_price próprio;
+- interior próprio;
+- stash próprio;
+- wardrobe próprio;
+- garagem própria;
+- transações próprias;
+- futura configuração de IPTU própria.
+
+Nunca atribuir owner ao prédio.
+Nunca transformar defaults do prédio em venda do prédio.
+
+==================================================
+3. DEFAULTS DO PRÉDIO
+==================================================
+
+Adicionar defaults administrativos para novas unidades:
+
+- defaultUnitSaleEnabled;
+- defaultUnitSaleMode;
+- defaultUnitSalePrice;
+- defaultUnitShell;
+- defaultUnitInteriorConfig, quando o modelo real suportar;
+- defaults de features somente quando já previstos no plano.
+
+Armazenar os defaults em estrutura própria do prédio, por exemplo:
+
+```json
+{
+  "unitDefaults": {
+    "saleEnabled": true,
+    "saleMode": "direct",
+    "salePrice": 180000,
+    "shell": "shell_name"
+  }
+}
+```
+
+Adapte ao JSON persistente real já existente.
+
+Não reutilizar `sale_enabled`, `sale_mode` e `sale_price` do registro do prédio
+como defaults, porque esses campos representam comércio da própria propriedade
+e o prédio nunca é vendável.
+
+Os defaults são somente um modelo de criação.
+
+Exemplo:
+
+Prédio:
+defaultUnitSalePrice = 180000
+
+Criação:
+101 recebe 180000
+102 recebe 180000
+201 recebe 180000
+
+Depois da criação:
+
+- cada unidade possui cópia independente;
+- alterar o default do prédio não modifica unidades existentes;
+- não existe herança dinâmica;
+- reiniciar o recurso não recalcula preços;
+- editar a unidade não altera o default do prédio.
+
+==================================================
+4. BANCO E MIGRATION
+==================================================
+
+Inspecione primeiro a estrutura atual.
+
+Preferir JSON/colunas já existentes quando suficientes.
+
+Não criar migration sem necessidade real.
+
+Não usar o nome `006_property_tax.sql`, pois ele está reservado para a Fase 6.
+
+Se uma migration for realmente indispensável:
+
+- justificar no relatório;
+- usar numeração que não conflite com IPTU;
+- torná-la incremental, idempotente e não destrutiva;
+- atualizar o plano antes de aplicá-la;
+- não criar campos de IPTU.
+
+==================================================
+5. WIZARD DO PRÉDIO
+==================================================
+
+No `/mzhouses`, adicionar ou consolidar:
+
+Prédio
+├─ Dados gerais
+├─ Entrada e interfone
+├─ Porta do prédio
+├─ Defaults de novas unidades
+│  ├─ Venda habilitada por padrão
+│  ├─ Modo padrão: none/admin/direct
+│  ├─ Preço padrão
+│  └─ Shell/interior padrão
+├─ Criar unidades em lote
+├─ Gerenciar unidades
+└─ Operações comerciais em lote
+
+Validar server-side:
+
+- prédio real;
+- categoria building;
+- admin autorizado;
+- preço inteiro;
+- preço dentro do limite seguro;
+- direct somente com preço maior que zero;
+- modo válido;
+- shell/interior válido;
+- códigos e números de unidade válidos.
+
+Mostrar resumo completo antes de salvar.
+
+==================================================
+6. CRIAÇÃO DE UNIDADES EM LOTE
+==================================================
+
+Implementar criação em lote com planejamento antes da persistência.
+
+Fluxo obrigatório:
+
+1. validar admin;
+2. reler o prédio;
+3. validar categoria building;
+4. receber a especificação do lote;
+5. normalizar números e códigos;
+6. detectar duplicatas dentro do próprio lote;
+7. detectar unidades já existentes no banco;
+8. validar shell/interior/defaults;
+9. montar um plano imutável;
+10. mostrar preview;
+11. confirmar;
+12. adquirir lock administrativo do prédio para a operação;
+13. persistir de forma transacional ou compensável;
+14. atualizar cache somente após sucesso;
+15. liberar lock em todos os caminhos.
+
+Cada unidade deve receber uma cópia dos defaults no momento da criação.
+
+Não:
+
+- sobrescrever unidade existente;
+- apagar unidade existente;
+- alterar owner;
+- alterar chaves;
+- alterar preço de unidade já criada;
+- deixar metade do lote criado sem registro claro de falha.
+
+Preferência:
+
+- usar transação SQL real quando o adapter/repository suportar;
+- caso não suporte, usar plano + journal de operação + compensação segura;
+- nunca fazer rollback destrutivo sobre registros que já existiam antes do lote.
+
+A operação deve ser idempotente:
+
+- repetição do mesmo request não cria duplicatas;
+- usar operation key/idempotency key quando necessário.
+
+==================================================
+7. CÓDIGOS E NÚMEROS DE UNIDADE
+==================================================
+
+Definir regra determinística e documentada para:
+
+- unit_number;
+- house_code da unidade;
+- vínculo com building_code;
+- andar quando aplicável.
+
+Não inferir andar por substring de forma insegura.
+
+Operação “por andar” somente pode existir quando:
+
+- há campo explícito de andar; ou
+- existe parser determinístico documentado e validado.
+
+Se isso não estiver garantido, não implementar edição por andar nesta fase.
+
+Não permitir códigos que colidam com propriedades fora do prédio.
+
+==================================================
+8. EDIÇÃO INDIVIDUAL
+==================================================
+
+Permitir editar cada unidade independentemente:
+
+- sale_enabled;
+- sale_mode;
+- sale_price;
+- shell/interior quando permitido pelo plano;
+- status comercial;
+- dados administrativos.
+
+Toda edição deve:
+
+- reler a unidade;
+- validar vínculo com o prédio;
+- validar owner;
+- validar transações pendentes;
+- validar preço e modo;
+- preservar chaves;
+- preservar access_json;
+- preservar door_json;
+- preservar features;
+- registrar log.
+
+Unidade com owner não pode ser colocada à venda.
+
+Remover owner não reativa a venda automaticamente.
+
+==================================================
+9. OPERAÇÕES EM LOTE
+==================================================
+
+Permitir, com confirmação forte:
+
+- aplicar preço a unidades selecionadas;
+- aplicar modo de venda a unidades selecionadas;
+- ativar/desativar venda em unidades selecionadas;
+- operar somente em unidades sem owner;
+- operar somente em unidades elegíveis;
+- operar por andar apenas se a regra de andar for segura.
+
+Antes de alterar, montar preview:
+
+- total selecionado;
+- total elegível;
+- total ignorado;
+- motivo de cada item ignorado;
+- valores anteriores;
+- valores novos.
+
+Bloquear em lote qualquer unidade que possua:
+
+- owner;
+- transação payment_pending;
+- transação money_removed;
+- transação manual_review;
+- compra ativa;
+- lock financeiro ativo;
+- estado arquivado/desativado;
+- categoria incorreta;
+- proteção administrativa explícita.
+
+Não alterar unidade vendida, com owner ou financeiramente ambígua.
+
+Não aceitar uma confirmação genérica que modifique silenciosamente unidades
+protegidas.
+
+A ação deve:
+
+- usar lock por unidade;
+- reler cada unidade imediatamente antes da mutação;
+- não disputar silenciosamente com compra ativa;
+- gerar resultado item a item;
+- permitir sucesso parcial somente quando isso estiver explicitamente
+  documentado no preview e no relatório;
+- nunca deixar cache divergente do banco.
+
+Preferência de segurança:
+
+- all-or-nothing para criação;
+- resultado item a item para edição em lote, sem alterar itens inelegíveis.
+
+==================================================
+10. REUTILIZAÇÃO OBRIGATÓRIA DA FASE 4
+==================================================
+
+A compra de uma unidade deve reutilizar:
+
+```lua
+MZHousesCommerce.purchase
+```
+
+Não duplicar:
+
+- consulta de saldo;
+- RemoveMoney;
+- AddMoney;
+- lock;
+- CAS;
+- transação;
+- transaction_key;
+- máquina de estados;
+- refund;
+- manual_review;
+- recovery;
+- limpeza/restauração de chaves.
+
+O client envia somente o código da unidade e, quando necessário, um identificador
+mínimo do contexto do interfone.
+
+O servidor deve reler:
+
+- prédio;
+- unidade;
+- vínculo entre ambos;
+- owner;
+- sale_enabled;
+- sale_mode;
+- sale_price;
+- estado da transação;
+- jogador;
+- citizenid;
+- saldo;
+- proximidade.
+
+Locks e transações são sempre por unidade.
+
+Compras de unidades diferentes podem ocorrer simultaneamente.
+
+Duas compras da mesma unidade não podem concluir.
+
+Estados:
+
+- payment_pending;
+- money_removed;
+- manual_review;
+
+continuam bloqueando nova compra da unidade.
+
+Não alterar a máquina de estados terminal aprovada na Fase 4.
+
+==================================================
+11. CONTEXTO DE COMPRA PELO INTERFONE
+==================================================
+
+A compra pelo interfone não deve ignorar a validação de distância.
+
+Criar ou adaptar um contexto server-side seguro:
+
+- jogador próximo da entrada/interfone do prédio;
+- prédio correto;
+- unidade vinculada ao prédio;
+- interfone atualmente acessível;
+- unidade elegível;
+- sale_mode=direct;
+- sale_enabled=true;
+- owner vazio;
+- preço maior que zero.
+
+Não confiar no client para dizer que está perto.
+
+Usar coordenadas persistidas do prédio no servidor.
+
+Não exigir proximidade da porta interna da unidade quando a compra acontece pelo
+interfone externo.
+
+Não permitir comprar uma unidade de outro prédio enviando código forjado.
+
+O contexto do interfone deve apenas adaptar a validação de proximidade.
+Toda a lógica financeira continua na Fase 4.
+
+==================================================
+12. INTERFONE
+==================================================
+
+O interfone deve exibir, sem dados sensíveis:
+
+- número da unidade;
+- label;
+- disponível;
+- ocupada;
+- à venda;
+- preço quando permitido;
+- sale_mode;
+- ação possível;
+- estado resumido.
+
+Não enviar:
+
+- citizenid do owner;
+- access_json;
+- regras;
+- chaves;
+- grade;
+- duty;
+- metadata administrativa;
+- detalhes financeiros;
+- transaction_key.
+
+Regras de listagem:
+
+- unidade direct à venda aparece com preço e opção de compra;
+- unidade admin à venda aparece com preço/status, sem compra direta;
+- unidade do próprio jogador aparece;
+- unidade para a qual o jogador possui chave aparece quando a UX atual exigir;
+- unidade ocupada pode aparecer apenas como “Ocupada”, sem identificar owner;
+- unidade administrativa/oculta segue política definida no plano;
+- unidade privada não deve expor dados internos.
+
+Ao selecionar unidade direct disponível:
+
+1. solicitar detalhes comerciais mínimos;
+2. mostrar confirmação;
+3. chamar compra usando o fluxo da Fase 4;
+4. atualizar interfone após sucesso;
+5. remover opção de compra para os demais jogadores.
+
+==================================================
+13. VISIBILIDADE
+==================================================
+
+Manter separação:
+
+- visibilidade do prédio;
+- acesso ao prédio;
+- visibilidade da unidade no interfone;
+- autorização para entrar na unidade;
+- autorização para comprar a unidade.
+
+Venda da unidade não concede entrada.
+
+Unidade direct à venda:
+
+- aparece no interfone;
+- pode ser comprada;
+- não permite entrar antes da compra apenas por estar à venda.
+
+Unidade unlocked continua seguindo as regras de guest da porta.
+
+Não publicar access_json.
+
+==================================================
+14. PORTAS
+==================================================
+
+Preservar separação total:
+
+- door_json do prédio;
+- door_json da unidade.
+
+Comprar unidade:
+
+- não altera porta do prédio;
+- não altera outras unidades;
+- não destranca automaticamente a unidade;
+- não muda blocked;
+- não muda G;
+- não muda animação;
+- não muda cooldown.
+
+O prédio continua usando E para interfone.
+
+A unidade continua usando E para entrar e G para controlar conforme autorização.
+
+==================================================
+15. FEATURES
+==================================================
+
+Cada unidade mantém independentemente:
+
+- stash;
+- wardrobe;
+- garagem;
+- access_json.features.
+
+Criação de nova unidade pode copiar defaults previstos no wizard.
+
+Compra:
+
+- não sobrescreve features;
+- não torna recurso público;
+- não muda stash ID;
+- não muda integração de roupa;
+- não muda garagem;
+- guest continua bloqueado salvo feature public explícita.
+
+==================================================
+16. CONCORRÊNCIA
+==================================================
+
+Usar:
+
+- lock financeiro por unidade;
+- lock administrativo por prédio para criação em lote;
+- lock por unidade para edição em lote;
+- idempotency key para operação de criação quando necessário.
+
+Garantir:
+
+- compras de unidades distintas podem ocorrer em paralelo;
+- duas compras da mesma unidade não;
+- lote não altera unidade durante compra ativa;
+- compra iniciada depois do preview faz a unidade ser rejeitada na releitura;
+- locks sempre são liberados;
+- restart não deixa operação silenciosamente incompleta.
+
+==================================================
+17. CACHE E SINCRONIZAÇÃO
+==================================================
+
+Atualizar cache somente depois da persistência.
+
+Sincronizar apenas dados públicos necessários:
+
+- unidade criada;
+- status comercial alterado;
+- preço alterado quando público;
+- unidade vendida;
+- disponibilidade do interfone.
+
+Não enviar estruturas administrativas completas para todos os clients.
+
+Depois da compra:
+
+- interfone atualiza;
+- opção Comprar desaparece;
+- owner recebe acesso;
+- demais jogadores veem o novo status;
+- prédio permanece inalterado.
+
+==================================================
+18. LOGS E RATE LIMIT
+==================================================
+
+Registrar:
+
+- building.unit.batch.preview;
+- building.unit.batch.created;
+- building.unit.batch.failed;
+- building.unit.default.updated;
+- building.unit.bulk.started;
+- building.unit.bulk.item.updated;
+- building.unit.bulk.item.skipped;
+- building.unit.bulk.completed;
+- building.unit.purchase.started;
+- building.unit.purchase.completed;
+- building.unit.purchase.failed.
+
+Usar logger real existente.
+
+Aplicar rate limit em:
+
+- abrir detalhes do interfone;
+- solicitar compra;
+- criar lote;
+- editar lote;
+- consultar listas administrativas.
+
+Não criar spam de log em loops ou por frame.
+
+==================================================
+19. SEGURANÇA
+==================================================
+
+Servidor autoritativo.
+
+Nunca confiar no client para:
+
+- building_code válido;
+- unit_code válido;
+- vínculo prédio/unidade;
+- preço;
+- sale mode;
+- owner;
+- elegibilidade;
+- saldo;
+- coordenadas;
+- unidades selecionadas;
+- resultado do preview;
+- status financeiro.
+
+Revalidar tudo na confirmação.
+
+Admin menu não substitui autorização server-side.
+
+Não permitir:
+
+- comprar prédio;
+- atribuir owner ao prédio;
+- comprar unidade de outro prédio;
+- editar unidade com owner em lote;
+- editar unidade com transação ambígua;
+- usar payload forjado para reduzir preço;
+- alterar portas/features durante compra.
+
+==================================================
+20. NÃO IMPLEMENTAR
+==================================================
+
+Não implementar:
+
+- IPTU;
+- migration de IPTU;
+- aluguel;
+- financiamento;
+- condomínio;
+- taxa condominial;
+- revenda entre jogadores;
+- comissão;
+- imobiliária;
+- banco empresarial;
+- retomada automática;
+- prédio vendável;
+- owner residencial no prédio;
+- preço herdado continuamente;
+- alteração automática de unidade existente ao mudar defaults;
+- modificação em lote de unidade com owner;
+- modificação de estados financeiros terminais.
+
+==================================================
+21. TESTES OBRIGATÓRIOS
+==================================================
+
+1. Criar prédio com defaults comerciais.
+2. Confirmar que o prédio não fica vendável.
+3. Criar várias unidades em lote.
+4. Confirmar que cada unidade copia os defaults.
+5. Repetir o mesmo lote:
+   - não criar duplicatas.
+6. Forçar falha no meio da criação:
+   - não deixar conjunto parcial inconsistente.
+7. Alterar default do prédio:
+   - unidades existentes não mudam.
+8. Alterar uma unidade:
+   - demais não mudam.
+9. Aplicar preço em lote somente a unidades sem owner.
+10. Unidade com owner é ignorada/bloqueada.
+11. Unidade com payment_pending é bloqueada.
+12. Unidade com money_removed é bloqueada.
+13. Unidade com manual_review é bloqueada.
+14. Compra iniciada entre preview e confirmação:
+   - item é rejeitado na releitura.
+15. Comprar unidade pelo interfone.
+16. Confirmar proximidade server-side do interfone.
+17. Tentar comprar unidade de outro prédio com código forjado:
+   - bloquear.
+18. Owner é atribuído somente à unidade.
+19. Prédio continua sem owner.
+20. Duas compras da mesma unidade:
+   - apenas uma conclui.
+21. Compras de unidades diferentes:
+   - ambas podem concluir.
+22. Evento com preço falso:
+   - servidor usa preço real.
+23. sale_mode=admin:
+   - não compra pelo interfone.
+24. Direct com preço zero:
+   - bloqueado.
+25. Porta do prédio não muda após compra.
+26. Porta da unidade não destranca automaticamente.
+27. Outras unidades não mudam.
+28. access_json.features permanece.
+29. Stash ID permanece.
+30. Interfone não expõe owner/citizenid/regras/chaves.
+31. Restart preserva defaults e unidades.
+32. E, G, animação, cinto e interfone sem regressão.
+33. Compra normal de casa da Fase 4 continua funcionando.
+34. Recovery financeiro da Fase 4 continua funcionando.
+35. Nenhum campo ou tabela de IPTU foi criado.
+
+==================================================
+22. VALIDAÇÃO
+==================================================
+
+Execute:
+
+powershell -ExecutionPolicy Bypass -File D:\git-hub\repo_oficial\mz_houses\tools\validate.ps1
+
+Atualize:
+
+- README.md;
+- docs/ADMIN_GUIDE.md;
+- docs/TEST_PLAN.md;
+- docs/UNIVERSAL_PROPERTIES_PLAN.md;
+- tabela de controle de execução.
+
+Marque ao final:
+
+Fase 5 — Implementada, aguardando runtime.
+
+Não marque como aprovada em runtime sem teste no FiveM.
+
+==================================================
+23. RELATÓRIO FINAL
+==================================================
+
+Entregue:
+
+1. diagnóstico da estrutura atual;
+2. modelo final de prédio e unidade;
+3. formato persistente dos defaults;
+4. justificativa de migration, caso exista;
+5. fluxo de criação em lote;
+6. estratégia transacional/compensação;
+7. idempotência;
+8. regra de códigos e números;
+9. operações em lote;
+10. proteção de unidades com owner;
+11. proteção de transações ambíguas;
+12. integração com MZHousesCommerce.purchase;
+13. validação do contexto do interfone;
+14. payload público do interfone;
+15. locks e concorrência;
+16. cache e sincronização;
+17. arquivos criados;
+18. arquivos alterados;
+19. testes estáticos;
+20. checklist runtime;
+21. riscos;
+22. confirmação de que não alterou a máquina financeira da Fase 4;
+23. confirmação de que não implementou IPTU;
+24. confirmação de que não avançou para a Fase 6.
+
+
+==================================================
+COMANDO 9 — FASE 6
+==================================================
+
+Execute somente após a Fase 5 estar aprovada em runtime e auditada.
+
+Leia integralmente:
+
+D:\git-hub\repo_oficial\mz_houses\docs\UNIVERSAL_PROPERTIES_PLAN.md
+
+Implemente somente a Fase 6 — IPTU.
+
+ANTES DE EDITAR
+
+1. Inspecione arquivos reais atuais.
+2. Preserve Fases 0 a 5.
+3. Não use Git/histórico.
+4. Não implementar retomada automática no MVP.
+5. Não misturar tax status com door state.
+
+ELEGIBILIDADE
+
+IPTU somente para:
+
+- house residencial;
+- apartment_unit/apartment residencial;
+- propriedade com owner.
+
+Não aplicar a:
+
+- building;
+- gang;
+- job;
+- public;
+- administrative;
+- propriedade sem owner;
+- archived;
+- tipos não residenciais.
+
+CONFIGURAÇÃO
+
+Permitir na criação/edição residencial:
+
+- tax_enabled;
+- tax_amount;
+- billing_interval_days;
+- grace_period_days;
+- primeira data de vencimento;
+- política inicial.
+
+Prédio pode ter apenas defaults para novas unidades:
+
+- default tax enabled;
+- default tax amount;
+- default interval;
+- default grace period.
+
+Esses defaults não alteram unidades existentes automaticamente.
+
+STATUS DO IPTU
+
+Usar namespace/campos próprios.
+
+Estados:
+
+- disabled;
+- paid;
+- due;
+- overdue;
+- blocked.
+
+IMPORTANTE:
+
+`tax_status=blocked` não pode alterar ou ser confundido com:
+
+`door_json.state=blocked`
+
+Não bloquear a porta automaticamente no MVP.
+
+Não impedir saída.
+
+Não remover owner automaticamente.
+
+Não retirar propriedade automaticamente.
+
+DATAS
+
+Usar datas persistidas no banco e horário do servidor/UTC de maneira consistente.
+
+Campos conceituais:
+
+- tax_enabled;
+- tax_amount;
+- tax_due_at;
+- tax_last_paid_at;
+- tax_grace_until;
+- tax_status;
+- tax_interval_days.
+
+Evitar cálculos baseados apenas em uptime ou timers client-side.
+
+INICIALIZAÇÃO
+
+Ao comprar propriedade:
+
+- inicializar próximo vencimento conforme configuração.
+
+Ao atribuir owner manualmente:
+
+- permitir que admin escolha inicializar IPTU;
+- padrão seguro documentado;
+- não cobrar retroativamente sem confirmação.
+
+Ao remover owner:
+
+- preservar histórico;
+- desativar ou suspender cobrança atual;
+- não transferir dívida automaticamente para futuro comprador sem regra explícita.
+
+PAGAMENTO
+
+Owner consulta:
+
+- valor;
+- vencimento;
+- tolerância;
+- status;
+- histórico resumido.
+
+Pagamento:
+
+1. server valida owner;
+2. relê propriedade;
+3. valida cobrança;
+4. adquire lock;
+5. consulta saldo bancário;
+6. registra payment pending;
+7. remove dinheiro;
+8. atualiza vencimento;
+9. registra completed;
+10. rollback/refund em falha.
+
+Não confiar no client para valor, data ou status.
+
+Não aceitar pagamento duplicado concorrente.
+
+HISTÓRICO
+
+Migration:
+
+006_property_tax.sql
+
+Criar tabela:
+
+mz_house_tax_payments
+
+Campos mínimos conceituais:
+
+- id;
+- property_id/code;
+- owner_citizenid;
+- amount;
+- period_start;
+- period_end;
+- due_at;
+- paid_at;
+- status;
+- transaction_reference;
+- metadata_json.
+
+Adicionar índices.
+
+PROCESSAMENTO
+
+Implementar processamento seguro:
+
+- horário ou em lote;
+- lazy check ao carregar propriedade/player;
+- paginação;
+- sem consultar toda tabela a cada frame;
+- sem thread por propriedade;
+- idempotente;
+- tolerante a restart.
+
+AVISOS
+
+No MVP:
+
+- aviso ao owner ao conectar;
+- aviso ao consultar propriedade;
+- aviso próximo ao vencimento;
+- aviso overdue.
+
+Não criar spam.
+
+Não exigir telefone se a integração não estiver pronta.
+
+ADMIN
+
+No `/mzhouses` permitir:
+
+- consultar situação;
+- alterar valor;
+- alterar vencimento;
+- ativar/desativar;
+- conceder tolerância;
+- marcar ajuste administrativo;
+- ver pagamentos;
+- marcar `tax_status=blocked` administrativamente.
+
+Toda alteração gera log.
+
+EFEITOS DO ATRASO
+
+No MVP:
+
+- due: aviso;
+- overdue: aviso e registro;
+- blocked: status administrativo do IPTU.
+
+Não:
+
+- remover owner;
+- vender automaticamente;
+- bloquear porta automaticamente;
+- apagar chaves;
+- impedir jogador de sair;
+- apagar stash.
+
+Qualquer restrição futura deve ser outra fase.
+
+COMPATIBILIDADE
+
+- features continuam funcionando;
+- porta continua independente;
+- guest não paga IPTU;
+- gang/job/público/admin não pagam;
+- comprador novo não herda dívida sem regra explícita;
+- prédio não paga, somente unidade.
+
+TESTES OBRIGATÓRIOS
+
+1. Comprar casa:
+   - vencimento inicializado.
+2. Atribuir owner manual:
+   - comportamento documentado.
+3. Pagar com saldo:
+   - avança vencimento.
+4. Saldo insuficiente:
+   - não altera cobrança.
+5. Pagamento simultâneo:
+   - somente um.
+6. Grace period.
+7. Due → overdue.
+8. Overdue não remove owner.
+9. Tax blocked não altera door blocked.
+10. Casa e apartamento pagam.
+11. Prédio/gang/job/public/admin não pagam.
+12. Remover owner:
+    - cobrança suspensa/preservada corretamente.
+13. Novo comprador:
+    - não herda dívida indevida.
+14. Restart:
+    - datas e status persistem.
+15. Processamento em lote não duplica cobrança.
+
+Atualize documentação, plano e testes.
+
+Execute validador.
+
+Entregue relatório completo.
+
+==================================================
+COMANDO 10 — FASE 7
+==================================================
+
+Execute somente após a Fase 6 estar aprovada em runtime e auditada.
+
+Leia integralmente:
+
+D:\git-hub\repo_oficial\mz_houses\docs\UNIVERSAL_PROPERTIES_PLAN.md
+
+Implemente somente a Fase 7 — Consolidação, migração, auditoria e documentação.
+
+OBJETIVOS
+
+- wizard de migração manual de propriedades legadas;
+- auditoria de listing_json e realestate_json;
+- não apagar dados automaticamente;
+- documentar exports finais;
+- documentar eventos/callbacks;
+- atualizar README;
+- atualizar ADMIN_GUIDE;
+- atualizar TEST_PLAN;
+- revisar migrations 002 a 006;
+- atualizar validate.ps1;
+- revisar caches;
+- revisar performance;
+- revisar rate limits;
+- revisar payloads públicos;
+- revisar logs;
+- revisar rollback financeiro;
+- revisar locks de compra/IPTU;
+- revisar cleanup de sessão/bucket/preview;
+- revisar compatibilidade de casas antigas.
+
+AUDITORIA DAS FASES
+
+Confirmar:
+
+Fase 0:
+- origem determinística;
+- buckets;
+- cleanup.
+
+Fase 1:
+- owner/gang/job/public/admin;
+- access_json;
+- grade/duty.
+
+Fase 2:
+- locked/unlocked/blocked;
+- chaves access/control;
+- E/G;
+- animação;
+- visibilidade separada;
+- guest.
+
+Fase 3:
+- stash;
+- wardrobe;
+- garagem;
+- features;
+- revalidação server-side.
+
+Fase 4:
+- preço;
+- compra;
+- venda administrativa;
+- transações;
+- refund.
+
+Fase 5:
+- prédio;
+- unidades;
+- preço padrão;
+- lote;
+- interfone.
+
+Fase 6:
+- IPTU;
+- pagamentos;
+- datas;
+- status;
+- nenhuma retomada automática.
+
+MIGRAÇÃO LEGADA
+
+O wizard deve permitir converter explicitamente:
+
+- residência antiga;
+- prédio antigo;
+- unidade antiga;
+- org/gang antiga;
+- job antiga;
+- interior público;
+- administrativo.
+
+Mostrar preview antes de persistir.
+
+Não migrar automaticamente tipos ambíguos.
+
+Não reativar org/business antigo sem decisão administrativa.
+
+CÓDIGO MORTO
+
+Remover somente depois de:
+
+1. pesquisar consumidores reais no workspace;
+2. pesquisar exports/eventos/callbacks;
+3. confirmar ausência de uso;
+4. documentar remoção.
+
+Preservar wrappers de compatibilidade quando ainda úteis.
+
+Não apagar colunas antigas automaticamente.
+
+SQL DE LIMPEZA
+
+Criar somente SQL opcional e separado.
+
+Nunca executar cleanup automaticamente.
+
+MZ_REALESTATE
+
+Confirmar novamente:
+
+- nenhuma dependência runtime;
+- telefone não chama;
+- houses não chama;
+- nenhum ensure ativo no workspace;
+- pasta pode ser apagada somente após auditoria externa.
+
+SEGURANÇA FINAL
+
+Auditar:
+
+- client não define owner;
+- client não define preço;
+- client não define tax;
+- client não define door;
+- client não define feature permission;
+- property code revalidado;
+- distância;
+- sessão;
+- citizenid;
+- grupo;
+- grade;
+- duty;
+- saldo;
+- locks;
+- rollback;
+- rate limit.
+
+PERFORMANCE
+
+Confirmar:
+
+- sem thread por propriedade;
+- sem callback por frame;
+- caches com invalidação;
+- payload público mínimo;
+- processamento de IPTU em lote;
+- índices adequados;
+- shell sob demanda.
+
+VALIDAÇÃO FINAL
+
+Executar validate.ps1.
+
+Criar relatório de validação final.
+
+Atualizar a tabela de execução do plano.
+
+Não adicionar funcionalidades novas.
+
+Entregar:
+
+1. arquivos alterados;
+2. itens removidos;
+3. itens preservados por compatibilidade;
+4. migrations finais;
+5. exports finais;
+6. eventos finais;
+7. checklist runtime completo;
+8. riscos pendentes;
+9. SQL opcional;
+10. confirmação sobre exclusão do mz_realestate.
+
+==================================================
+COMANDO DE CORREÇÃO APÓS TESTE RUNTIME
+==================================================
+
+Use este modelo quando encontrar um bug depois de testar uma fase:
+
+Leia:
+
+D:\git-hub\repo_oficial\mz_houses\docs\UNIVERSAL_PROPERTIES_PLAN.md
+
+Estamos testando somente a Fase [NOME/NÚMERO].
+
+Problema runtime observado:
+
+[COLE O ERRO, PRINT, LOG E PASSOS]
+
+Reproduza a partir dos arquivos reais atuais.
+Não use Git/histórico.
+Não avance para outra fase.
+Não contorne removendo validações de segurança.
+Identifique a causa real, implemente a correção mínima e atualize o checklist da fase.
+Execute o validador e entregue os arquivos alterados e o teste que devo repetir.
+
+==================================================
+VALIDAÇÃO LOCAL NO POWERSHELL
+==================================================
+
+A partir de:
+
+D:\git-hub\repo_oficial
+
+Execute:
+
+powershell -ExecutionPolicy Bypass -File .\mz_houses\tools\validate.ps1
+
+Se já estiver dentro da pasta mz_houses:
+
+powershell -ExecutionPolicy Bypass -File .\tools\validate.ps1
+
+==================================================
+RESTART NO CONSOLE DO FIVEM
+==================================================
+
+Para mudanças somente no houses:
+
+restart mz_houses
+
+Para mudanças em shells/interiores:
+
+restart mz_interiors
+restart mz_houses
+
+Depois de migration ou alteração estrutural importante, prefira reinício completo
+do servidor.
+
+==================================================
+ORDEM FINAL
+==================================================
+
+1. Fase 0
+2. Revisão da Fase 0
+3. Teste runtime
+4. Fase 1
+5. Revisão da Fase 1
+6. Teste runtime
+7. Fase 2
+8. Teste runtime
+9. Fase 3
+10. Teste runtime
+11. Fase 4
+12. Teste runtime
+13. Fase 5
+14. Teste runtime
+15. Fase 6
+16. Teste runtime
+17. Fase 7
+18. Validação final

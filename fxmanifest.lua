@@ -13,6 +13,7 @@ shared_scripts {
 
 client_scripts {
   'client/main.lua',
+  'client/player_panel.lua',
   'client/admin_menu.lua',
   'client/interactions.lua'
 }
@@ -21,14 +22,24 @@ server_scripts {
   '@oxmysql/lib/MySQL.lua',
   'server/prepare.lua',
   'server/repository.lua',
+  'server/integrations/groups.lua',
+  'server/access_policy.lua',
+  'server/door_service.lua',
   'server/service.lua',
-  'server/admin_menu.lua',
-  'server/main.lua'
+  'server/integrations/money.lua',
+  'server/commerce.lua',
+  'server/apartments.lua',
+  'server/tax.lua',
+  'server/player_panel.lua',
+  'server/legacy_migration.lua',
+  'server/main.lua',
+  'server/admin_menu.lua'
 }
 
 dependencies {
   'ox_lib',
   'oxmysql',
+  'mz_core',
   'mz_interiors',
   'mz_menu'
 }
