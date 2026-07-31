@@ -1,6 +1,6 @@
 MZHousesAccessPolicy = MZHousesAccessPolicy or {}
 
-local FEATURE_NAMES = { stash = true, wardrobe = true, garage = true }
+local FEATURE_NAMES = { stash = true, wardrobe = true, garage = true, furniture = true }
 
 local function trim(value)
   return tostring(value or ''):gsub('^%s+', ''):gsub('%s+$', '')
@@ -81,6 +81,9 @@ function MZHousesAccessPolicy.validateFeaturePolicy(featureName, raw)
   if mode == 'none' then mode = 'admin' end
   local allowed = { inherit = true, disabled = true, owner = true, keys = true, rules = true, public = true, admin = true }
   if not allowed[mode] then return false, 'invalid_feature_mode' end
+  if featureName == 'furniture' and mode ~= 'inherit' and mode ~= 'disabled' and mode ~= 'owner' then
+    return false, 'furniture_owner_only'
+  end
   if raw.match ~= nil and trim(raw.match):lower() ~= 'any' then return false, 'invalid_access_match' end
   local rules = type(raw.rules) == 'table' and raw.rules or {}
   if mode == 'rules' and #rules == 0 then return false, 'feature_rule_required' end
@@ -143,6 +146,13 @@ function MZHousesAccessPolicy.evaluateFeature(source, house, runtimeAccess, feat
   local feature = type(policy.features) == 'table' and policy.features[featureName] or { mode = 'inherit' }
   feature = MZHousesRepository.normalizeFeaturePolicy(feature)
   if feature.mode == 'disabled' then return false, 'feature_disabled' end
+  if featureName == 'furniture' then
+    if isGuest == true then return false, 'guest_decoration_denied' end
+    local citizenid, citizenErr = MZHousesService.getPlayerCitizenId(source)
+    if not citizenid then return false, citizenErr or 'player_not_loaded' end
+    if runtimeAccess.owner ~= citizenid then return false, 'property_owner_required' end
+    return true, { reason = 'feature_owner', feature = featureName, policySource = policySource }
+  end
   if feature.mode == 'public' then return true, { reason = 'feature_public', feature = featureName, policySource = policySource } end
   if isGuest == true then return false, 'guest_resource_denied' end
   if isAdmin == true then return true, { reason = 'admin', feature = featureName, policySource = policySource } end

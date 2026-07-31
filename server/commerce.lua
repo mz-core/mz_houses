@@ -361,6 +361,16 @@ function MZHousesCommerce.purchase(source, houseCode, options)
         amount = amount, transactionId = id
       })
     end
+    local purchasedHouse = MZHousesRepository.getHouseByCode(code) or {}
+    pcall(TriggerEvent, 'mz_houses:server:propertyOwnershipChanged', {
+      houseCode = code,
+      propertyId = tonumber(purchasedHouse.id),
+      previousOwner = nil,
+      newOwner = buyer,
+      reason = 'property_purchase_completed',
+      actorSource = tonumber(options.actorSource or source),
+      transactionId = id
+    })
     pcall(TriggerEvent, 'mz_houses:server:propertyAccessChanged', code, 'property_purchase_completed')
     return true, {
       houseCode = code,

@@ -164,7 +164,7 @@ local function normalizeAccessPolicy(data)
   local rules = normalizePolicyRules(data.rules, true)
 
   local features = {}
-  for _, name in ipairs({ 'stash', 'wardrobe', 'garage' }) do
+  for _, name in ipairs({ 'stash', 'wardrobe', 'garage', 'furniture' }) do
     features[name] = normalizeFeaturePolicy(type(data.features) == 'table' and data.features[name] or nil)
   end
 
@@ -376,7 +376,7 @@ local function normalizeBuilding(data)
     stash = true,
     wardrobe = true,
     garage = data.sharedGarage == true,
-    furniture = false
+    furniture = true
   })
   local rawTax = type(rawDefaults.tax) == 'table' and rawDefaults.tax or {
     taxEnabled = data.defaultUnitTaxEnabled,

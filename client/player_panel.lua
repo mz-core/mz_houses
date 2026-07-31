@@ -179,19 +179,36 @@ RegisterNetEvent('mz_houses:client:playerPanelOwnedProperty', function(payload)
   local response, err = callServer('mz_houses:server:playerPanel:getProperty', { houseCode = summary and summary.code })
   if not response then return notify(('Nao foi possivel atualizar o imovel: %s'):format(tostring(err)), 'error') end
   local property = response.property
+  local features = type(property.features) == 'table' and property.features or {}
+  local options = {
+    { title = 'Informacoes', description = propertySubtitle(property, false), icon = 'circle-info', event = 'mz_houses:client:playerPanelInfo', args = { property = property } },
+    { title = ('IPTU - %s'):format(taxLabel(property.tax and property.tax.status)), description = property.tax and property.tax.enabled and ('Vence: %s'):format(tostring(property.tax.dueAt or '-')) or 'Desabilitado', icon = 'landmark', event = 'mz_houses:client:playerPanelTax', args = { code = property.code } },
+    { title = ('Chaves - %d'):format(tonumber(property.keyCount) or 0), description = 'Listar, entregar ou revogar', icon = 'key', event = 'mz_houses:client:playerPanelKeys', args = { code = property.code, label = property.label } },
+    { title = ('Porta - %s'):format(doorLabel(property.doorState)), description = 'Somente leitura; controle presencial continua no G', icon = 'door-closed', disabled = true }
+  }
+  if features.furniture == true then
+    options[#options + 1] = {
+      title = 'Moveis residenciais',
+      description = 'Abrir loja, deposito e decoracao.',
+      icon = 'couch',
+      event = 'mz_houses:client:playerPanelFurniture'
+    }
+  end
+  options[#options + 1] = { title = 'Marcar entrada no mapa', description = trim(property.unitNumber) ~= '' and ('Entrada do predio | unidade %s'):format(property.unitNumber) or 'Nao teleporta', icon = 'location-dot', event = 'mz_houses:client:playerPanelWaypoint', args = { property = property } }
+  options[#options + 1] = { title = ('Comercio - %s'):format(commerceLabel(property.commerce)), description = 'Somente leitura', icon = 'tag', disabled = true }
   openContext({
     id = 'mz_houses_player_owned_' .. tostring(property.code),
     title = tostring(property.label or property.code),
     menu = 'mz_houses_player_owned',
-    options = {
-      { title = 'Informacoes', description = propertySubtitle(property, false), icon = 'circle-info', event = 'mz_houses:client:playerPanelInfo', args = { property = property } },
-      { title = ('IPTU - %s'):format(taxLabel(property.tax and property.tax.status)), description = property.tax and property.tax.enabled and ('Vence: %s'):format(tostring(property.tax.dueAt or '-')) or 'Desabilitado', icon = 'landmark', event = 'mz_houses:client:playerPanelTax', args = { code = property.code } },
-      { title = ('Chaves - %d'):format(tonumber(property.keyCount) or 0), description = 'Listar, entregar ou revogar', icon = 'key', event = 'mz_houses:client:playerPanelKeys', args = { code = property.code, label = property.label } },
-      { title = ('Porta - %s'):format(doorLabel(property.doorState)), description = 'Somente leitura; controle presencial continua no G', icon = 'door-closed', disabled = true },
-      { title = 'Marcar entrada no mapa', description = trim(property.unitNumber) ~= '' and ('Entrada do predio | unidade %s'):format(property.unitNumber) or 'Nao teleporta', icon = 'location-dot', event = 'mz_houses:client:playerPanelWaypoint', args = { property = property } },
-      { title = ('Comercio - %s'):format(commerceLabel(property.commerce)), description = 'Somente leitura', icon = 'tag', disabled = true }
-    }
+    options = options
   })
+end)
+
+RegisterNetEvent('mz_houses:client:playerPanelFurniture', function()
+  if GetResourceState('mz_furniture') ~= 'started' then
+    return notify('O sistema de moveis esta indisponivel.', 'error')
+  end
+  TriggerEvent('mz_furniture:client:openMenu')
 end)
 
 RegisterNetEvent('mz_houses:client:playerPanelInfo', function(payload)

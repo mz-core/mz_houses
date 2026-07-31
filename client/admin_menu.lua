@@ -933,7 +933,7 @@ function MZHousesAdminMenu_OpenProperty(code)
       },
       {
         title = 'Recursos e permissoes',
-        description = 'Bau, guarda-roupa e garagem',
+        description = 'Bau, guarda-roupa, garagem e moveis',
         icon = 'sliders-horizontal',
         onSelect = function()
           MZHousesAdminMenu.OpenFeaturePermissions(property.code)
@@ -1802,7 +1802,7 @@ local function copyAccessPolicy(policy)
       canControlDoorFromGrade = tonumber(rule.canControlDoorFromGrade)
     }
   end
-  for _, featureName in ipairs({ 'stash', 'wardrobe', 'garage' }) do
+  for _, featureName in ipairs({ 'stash', 'wardrobe', 'garage', 'furniture' }) do
     local feature = type(policy.features) == 'table' and policy.features[featureName] or nil
     local normalized = { mode = tostring(type(feature) == 'table' and feature.mode or 'inherit'), match = 'any', rules = {} }
     for _, rule in ipairs(type(feature) == 'table' and type(feature.rules) == 'table' and feature.rules or {}) do
@@ -1892,7 +1892,12 @@ function MZHousesAdminMenu.OpenAccessPolicy(code)
   })
 end
 
-local FEATURE_LABELS = { stash = 'Bau', wardrobe = 'Guarda-roupa', garage = 'Garagem' }
+local FEATURE_LABELS = {
+  stash = 'Bau',
+  wardrobe = 'Guarda-roupa',
+  garage = 'Garagem',
+  furniture = 'Moveis (somente proprietario)'
+}
 
 local function featurePolicyCopy(property, featureName)
   local policy = copyAccessPolicy(type(property) == 'table' and property.accessPolicy or nil)
@@ -1931,13 +1936,16 @@ function MZHousesAdminMenu.OpenFeaturePermissions(code)
   local property = getProperty(code)
   if not property then return end
   local options = {}
-  for _, featureName in ipairs({ 'stash', 'wardrobe', 'garage' }) do
+  for _, featureName in ipairs({ 'stash', 'wardrobe', 'garage', 'furniture' }) do
     local name = featureName
     local policy = featurePolicyCopy(property, name)
     options[#options + 1] = {
       title = FEATURE_LABELS[name],
       description = featurePolicySummary(policy),
-      icon = name == 'stash' and 'package-open' or name == 'wardrobe' and 'shirt' or 'car',
+      icon = name == 'stash' and 'package-open'
+        or name == 'wardrobe' and 'shirt'
+        or name == 'furniture' and 'couch'
+        or 'car',
       onSelect = function() MZHousesAdminMenu.OpenFeaturePolicy(code, name) end
     }
   end
@@ -1956,6 +1964,24 @@ function MZHousesAdminMenu.OpenFeaturePolicy(code, featureName)
   local policy = featurePolicyCopy(property, featureName)
   local function fixed(mode)
     saveFeaturePolicy(code, featureName, { mode = mode, match = 'any', rules = {} })
+  end
+  if featureName == 'furniture' then
+    openContext({
+      id = 'mz_houses_admin_feature_policy',
+      title = FEATURE_LABELS[featureName],
+      menu = 'mz_houses_admin_feature_permissions',
+      options = {
+        { title = 'Estado atual', description = featurePolicySummary(policy), disabled = true },
+        {
+          title = 'Ativado: somente proprietario',
+          description = 'Chaves, guests e Staff sem ownership nao podem decorar.',
+          icon = 'user-lock',
+          onSelect = function() fixed('owner') end
+        },
+        { title = 'Desativado', icon = 'ban', onSelect = function() fixed('disabled') end }
+      }
+    })
+    return
   end
   local options = {
     { title = 'Estado atual', description = featurePolicySummary(policy), disabled = true },

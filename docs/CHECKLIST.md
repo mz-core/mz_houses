@@ -165,4 +165,4 @@
 - [ ] Manter `MZHousesConfig.Debug = false` e `MZGaragemConfig.debug = false`, exceto durante diagnostico.
 - [ ] Confirmar `mz_interiors` com stream dos shells.
 - [ ] Executar `mz_houses/docs/MVP_TEST_PLAN.md`.
-- [ ] Definir proxima fase: org_base, business/comercio, venda/transferencia ou furniture separado.
+- [x] Proxima fase definida: `mz_furniture` separado, conforme `../../docs/MZ_FURNITURE_ARCHITECTURE_PLAN.md`.

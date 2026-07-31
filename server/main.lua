@@ -33,6 +33,20 @@ local HouseBuckets = {}
 local NextHouseBucket = 5000
 local SensitiveRate = {}
 
+local function houseSessionPayload(src, session)
+  if type(session) ~= 'table' then return nil end
+  return {
+    source = tonumber(src),
+    code = trim(session.code),
+    confirmed = session.confirmed == true,
+    kind = 'interior',
+    bucket = tonumber(session.bucket),
+    isGuest = session.isGuest == true,
+    enteredAt = session.enteredAt,
+    confirmedAt = session.confirmedAt
+  }
+end
+
 local function allowSensitive(src, action, limit, windowSeconds)
   local key = ('%s:%s'):format(tonumber(src) or 0, action)
   local now = os.time()
@@ -53,10 +67,19 @@ local function houseBucket(code)
   return HouseBuckets[code]
 end
 
-local function clearHouseSession(src)
+local function clearHouseSession(src, reason)
   src = tonumber(src)
   if not src then return end
+  local previous = HouseSessions[src]
   HouseSessions[src] = nil
+  if previous then
+    TriggerEvent(
+      'mz_houses:server:interiorSessionEnded',
+      src,
+      houseSessionPayload(src, previous),
+      tostring(reason or 'session_cleared')
+    )
+  end
   if GetPlayerName(src) then
     local player = Player(src)
     local state = player and player.state or nil
@@ -88,7 +111,7 @@ AddEventHandler('mz_houses:server:propertyAccessChanged', function(code, reason)
       local allowed = MZHousesService and MZHousesService.canEnterHouse(src, code, admin)
       if allowed ~= true or reason == 'house.admin.shell.set' or reason == 'house.admin.archive' or reason == 'house.admin.disable' then
         TriggerClientEvent('mz_houses:client:forceExit', src, reason or 'access_changed')
-        clearHouseSession(src)
+        clearHouseSession(src, reason or 'access_changed')
       end
     end
   end
@@ -1120,12 +1143,18 @@ lib.callback.register('mz_houses:server:confirmEnterHouse', function(source, pay
   payload = type(payload) == 'table' and payload or {}
   local session = HouseSessions[source]
   if not session or session.code ~= trim(payload.houseCode or payload.code) then
-    clearHouseSession(source)
+    clearHouseSession(source, 'invalid_confirmation')
     return { ok = false, error = 'invalid_house_session' }
+  end
+  if GetPlayerRoutingBucket(source) ~= tonumber(session.bucket) then
+    clearHouseSession(source, 'routing_bucket_changed')
+    return { ok = false, error = 'routing_bucket_mismatch' }
   end
   session.confirmed = true
   session.confirmedAt = os.time()
-  return { ok = true }
+  local context = houseSessionPayload(source, session)
+  TriggerEvent('mz_houses:server:interiorSessionConfirmed', source, context)
+  return { ok = true, session = context }
 end)
 
 CreateThread(function()
@@ -1134,23 +1163,23 @@ CreateThread(function()
     local now = os.time()
     for src, session in pairs(HouseSessions) do
       if session.confirmed ~= true and now - (session.enteredAt or now) > 20 then
-        clearHouseSession(src)
+        clearHouseSession(src, 'confirmation_timeout')
       end
     end
   end
 end)
 
 lib.callback.register('mz_houses:server:leaveHouse', function(source)
-  clearHouseSession(source)
+  clearHouseSession(source, 'player_left')
   return { ok = true }
 end)
 
 RegisterNetEvent('mz_houses:server:abortEnterHouse', function()
-  clearHouseSession(source)
+  clearHouseSession(source, 'enter_aborted')
 end)
 
 AddEventHandler('playerDropped', function()
-  HouseSessions[source] = nil
+  clearHouseSession(source, 'player_dropped')
   local prefix = ('%s:'):format(tonumber(source) or 0)
   for key in pairs(SensitiveRate) do
     if key:sub(1, #prefix) == prefix then SensitiveRate[key] = nil end
@@ -1159,7 +1188,7 @@ end)
 
 AddEventHandler('onResourceStop', function(resource)
   if resource ~= GetCurrentResourceName() and resource ~= 'mz_interiors' then return end
-  for src in pairs(HouseSessions) do clearHouseSession(src) end
+  for src in pairs(HouseSessions) do clearHouseSession(src, 'resource_stopped') end
 end)
 
 local function nearPropertyDoor(source, code)
@@ -1174,11 +1203,16 @@ local function confirmedInteriorFeatureSession(source, houseCode)
   local session = HouseSessions[source]
   if not session or session.code ~= code then return nil, 'not_inside_property' end
   if session.confirmed ~= true then return nil, 'house_session_not_confirmed' end
+  if GetPlayerRoutingBucket(source) ~= tonumber(session.bucket) then
+    clearHouseSession(source, 'routing_bucket_changed')
+    return nil, 'routing_bucket_mismatch'
+  end
   return {
     code = code,
     confirmed = true,
     kind = 'interior',
-    isGuest = session.isGuest == true
+    isGuest = session.isGuest == true,
+    bucket = tonumber(session.bucket)
   }
 end
 
@@ -1226,7 +1260,7 @@ lib.callback.register('mz_houses:server:getFeatureContext', function(source, pay
   session.silent = true
 
   local result = {}
-  for _, featureName in ipairs({ 'stash', 'wardrobe', 'garage' }) do
+  for _, featureName in ipairs({ 'stash', 'wardrobe', 'garage', 'furniture' }) do
     local allowed = MZHousesService.CanAccessPropertyFeature(
       source,
       session.code,
@@ -1753,6 +1787,18 @@ exports('CanAccessPropertyFeature', function(source, houseCode, featureName)
   end
   if not session then return false, sessionErr end
   return MZHousesService.CanAccessPropertyFeature(source, houseCode, featureName, session, isHouseAdmin(source))
+end)
+
+exports('CanDecorateProperty', function(source, houseCode)
+  local session, sessionErr = confirmedInteriorFeatureSession(source, houseCode)
+  if not session then return false, sessionErr end
+  return MZHousesService.CanDecorateProperty(source, houseCode, session)
+end)
+
+exports('CanViewPropertyFurniture', function(source, houseCode)
+  local session, sessionErr = confirmedInteriorFeatureSession(source, houseCode)
+  if not session then return false, sessionErr end
+  return MZHousesService.CanViewPropertyFurniture(source, houseCode, session)
 end)
 
 -- API administrativa. Todos os exports mutaveis exigem um actorSource admin.

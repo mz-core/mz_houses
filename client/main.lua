@@ -783,7 +783,8 @@ function MZHouses.RefreshCurrentFeatureAccess()
   CurrentHouse.data.featureAccess = {
     stash = type(response.features) == 'table' and response.features.stash == true,
     wardrobe = type(response.features) == 'table' and response.features.wardrobe == true,
-    garage = type(response.features) == 'table' and response.features.garage == true
+    garage = type(response.features) == 'table' and response.features.garage == true,
+    furniture = type(response.features) == 'table' and response.features.furniture == true
   }
   return true, cloneTable(CurrentHouse.data.featureAccess)
 end

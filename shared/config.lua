@@ -152,7 +152,7 @@ MZHousesConfig.PropertyDefaults = {
     stash = true,
     wardrobe = true,
     garage = false,
-    furniture = false
+    furniture = true
   }
 }
 
@@ -449,7 +449,7 @@ MZHousesConfig.Houses = {
   -- Entrada física da casa no mundo
   entrance = vector4(1265.75, -648.62, 67.92, 296.0),
 
-  status = 'debug',
+  status = 'active',
   enabled = true,
   visibility = 'auto',
   category = 'residential',
@@ -462,7 +462,8 @@ MZHousesConfig.Houses = {
     stash = true,
     wardrobe = true,
     garage = true,
-    furniture = false
+    -- Shell de staging: ainda nao cria objetos porque PlacementEnabled permanece false.
+    furniture = true
   },
 
   access = {

@@ -113,7 +113,7 @@ local function normalizeDefaults(raw, current)
     shell = shell,
     interior = copyTable(type(current.interior) == 'table' and current.interior or {}),
     features = copyTable(type(current.features) == 'table' and current.features or {
-      stash = true, wardrobe = true, garage = false, furniture = false
+      stash = true, wardrobe = true, garage = false, furniture = true
     }),
     tax = {
       enabled = tax.taxEnabled,

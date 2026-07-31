@@ -25,6 +25,7 @@ server_scripts {
   'server/integrations/groups.lua',
   'server/access_policy.lua',
   'server/door_service.lua',
+  'server/decoration_policy.lua',
   'server/service.lua',
   'server/integrations/money.lua',
   'server/commerce.lua',

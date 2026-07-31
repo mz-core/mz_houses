@@ -531,7 +531,7 @@ local function getFeatureAccessRules(accessConfig, featureName)
 end
 
 local function buildFeatureAccessSummary(accessConfig)
-  local features = { 'stash', 'wardrobe', 'garage' }
+  local features = { 'stash', 'wardrobe', 'garage', 'furniture' }
   local summary = {}
 
   for _, featureName in ipairs(features) do
@@ -1030,10 +1030,124 @@ function MZHousesService.CanSeeHouse(source, houseCode, context)
   return false, relationReason or 'unlisted'
 end
 
+function MZHousesService.CanDecorateProperty(source, houseCode, session)
+  source = tonumber(source)
+  if not source or source <= 0 or not GetPlayerName(source) then return false, 'player_not_loaded' end
+
+  local access, err, code, house = MZHousesService.getAccessState(houseCode)
+  if not access then return false, err or 'house_not_found' end
+  house = RuntimeHouses[code] or house or {}
+  local property = normalizeHouseProperty(house)
+  local citizenid, citizenErr = MZHousesService.getPlayerCitizenId(source)
+  if not citizenid then return false, citizenErr or 'player_not_loaded' end
+
+  local shell = trim(house.shell)
+  local boundsReady, bounds, boundsError = false, nil, 'furniture_bounds_required'
+  if shell ~= '' and GetResourceState('mz_interiors') == 'started' then
+    local callOk, exportOk, exportResult = pcall(function()
+      return exports['mz_interiors']:GetFurnitureBounds(shell)
+    end)
+    if callOk and exportOk == true and type(exportResult) == 'table' then
+      boundsReady, bounds, boundsError = true, exportResult, nil
+    elseif callOk then
+      boundsError = exportResult or 'furniture_bounds_required'
+    else
+      boundsError = 'interiors_unavailable'
+    end
+  elseif shell == '' then
+    boundsError = 'property_shell_required'
+  else
+    boundsError = 'interiors_unavailable'
+  end
+
+  local allowed, result = MZHousesDecorationPolicy.Evaluate({
+    source = source,
+    code = code,
+    propertyId = house.id,
+    property = property,
+    access = access,
+    citizenid = citizenid,
+    session = session,
+    currentBucket = GetPlayerRoutingBucket(source),
+    shell = shell,
+    boundsReady = boundsReady,
+    bounds = bounds,
+    boundsError = boundsError
+  })
+  if allowed ~= true and type(session) == 'table' and session.silent ~= true then
+    MZHousesService.log('property.furniture.access.denied', code, source, citizenid, {
+      reason = result or 'decoration_denied',
+      sessionKind = session.kind,
+      sessionBucket = session.bucket,
+      currentBucket = GetPlayerRoutingBucket(source),
+      shell = shell
+    })
+  end
+  if allowed ~= true then return false, result or 'decoration_denied' end
+  result.bounds = bounds
+  return true, result, code
+end
+
+function MZHousesService.CanViewPropertyFurniture(source, houseCode, session)
+  source = tonumber(source)
+  if not source or source <= 0 or not GetPlayerName(source) then
+    return false, 'player_not_loaded'
+  end
+  local access, err, code, house = MZHousesService.getAccessState(houseCode)
+  if not access then return false, err or 'house_not_found' end
+  house = RuntimeHouses[code] or house or {}
+  local property = normalizeHouseProperty(house)
+  session = type(session) == 'table' and session or {}
+  if session.confirmed ~= true or trim(session.code) ~= code
+    or trim(session.kind):lower() ~= 'interior' then
+    return false, 'invalid_furniture_view_session'
+  end
+  local bucket = tonumber(session.bucket)
+  if not bucket or bucket <= 0 or GetPlayerRoutingBucket(source) ~= bucket then
+    return false, 'routing_bucket_mismatch'
+  end
+  if access.enabled ~= true or trim(access.status):lower() ~= 'active' then
+    return false, 'house_disabled'
+  end
+  if trim(property.category):lower() ~= 'residential'
+    or trim(property.ownerType):lower() ~= 'player'
+    or (property.subtype ~= 'house' and property.subtype ~= 'apartment'
+      and property.subtype ~= 'apartment_unit') then
+    return false, 'residential_property_required'
+  end
+  if type(property.features) ~= 'table' or property.features.furniture ~= true then
+    return false, 'furniture_disabled'
+  end
+  local shell = trim(house.shell)
+  if shell == '' then return false, 'property_shell_required' end
+  if GetResourceState('mz_interiors') ~= 'started' then return false, 'interiors_unavailable' end
+  local boundsOk, boundsAllowed = pcall(function()
+    local ok = exports['mz_interiors']:GetFurnitureBounds(shell)
+    return ok == true
+  end)
+  if not boundsOk or boundsAllowed ~= true then return false, 'furniture_bounds_required' end
+  local citizenid, citizenErr = MZHousesService.getPlayerCitizenId(source)
+  if not citizenid then return false, citizenErr or 'player_not_loaded' end
+  return true, {
+    reason = access.owner == citizenid and 'property_owner' or 'authorized_occupant',
+    houseCode = code,
+    propertyId = tonumber(house.id),
+    citizenid = citizenid,
+    bucket = bucket,
+    shell = shell,
+    isGuest = session.isGuest == true,
+    canEdit = access.owner == citizenid
+  }
+end
+
 function MZHousesService.CanAccessPropertyFeature(source, houseCode, featureName, session, isAdmin)
   featureName = trim(featureName):lower()
-  if featureName ~= 'stash' and featureName ~= 'wardrobe' and featureName ~= 'garage' then
+  if featureName ~= 'stash' and featureName ~= 'wardrobe' and featureName ~= 'garage'
+    and featureName ~= 'furniture' then
     return false, 'invalid_feature'
+  end
+  if featureName == 'furniture' then
+    return MZHousesService.CanDecorateProperty(source, houseCode, session)
   end
   source = tonumber(source)
   if not source or source <= 0 or not GetPlayerName(source) then return false, 'player_not_loaded' end
@@ -1910,6 +2024,17 @@ function MZHousesService.setHouseOwner(houseCode, citizenid, actorSource, option
   if wasForSale then
     MZHousesService.log('property.sale.disabled', code, actorSource, citizenid, { reason = 'owner_set' })
   end
+  if previousOwner ~= citizenid then
+    local current = RuntimeHouses[code] or house or {}
+    TriggerEvent('mz_houses:server:propertyOwnershipChanged', {
+      houseCode = code,
+      propertyId = tonumber(current.id),
+      previousOwner = previousOwner,
+      newOwner = citizenid,
+      reason = 'owner_set',
+      actorSource = tonumber(actorSource)
+    })
+  end
   TriggerEvent('mz_houses:server:propertyAccessChanged', code, 'owner_set')
   return true, {
     houseCode = code, owner = citizenid,
@@ -1939,6 +2064,17 @@ function MZHousesService.clearHouseOwner(houseCode, actorSource)
   end
 
   MZHousesService.log('house.owner.clear', code, actorSource, previousOwner)
+  if previousOwner then
+    local current = RuntimeHouses[code] or {}
+    TriggerEvent('mz_houses:server:propertyOwnershipChanged', {
+      houseCode = code,
+      propertyId = tonumber(current.id),
+      previousOwner = normalizeCitizenId(previousOwner),
+      newOwner = nil,
+      reason = 'owner_cleared',
+      actorSource = tonumber(actorSource)
+    })
+  end
   TriggerEvent('mz_houses:server:propertyAccessChanged', code, 'owner_cleared')
   return true, { houseCode = code }
 end
@@ -2248,7 +2384,7 @@ local function defaultAdminFeatures()
     stash = true,
     wardrobe = true,
     garage = false,
-    furniture = false
+    furniture = true
   }
 end
 
@@ -2516,7 +2652,7 @@ function MZHousesService.getApartmentUnitDefaults(buildingHouse)
     shell = trim(defaults.shell or building.defaultUnitShell),
     interior = copyTable(type(defaults.interior) == 'table' and defaults.interior or {}),
     features = copyTable(type(defaults.features) == 'table' and defaults.features or {
-      stash = true, wardrobe = true, garage = building.sharedGarage == true, furniture = false
+      stash = true, wardrobe = true, garage = building.sharedGarage == true, furniture = true
     }),
     tax = {
       enabled = taxDefaults.enabled == true,
@@ -2694,7 +2830,7 @@ function MZHousesService.createStructuredProperty(actorSource, payload)
         salePrice = defaultCommerce.salePrice,
         shell = shellName,
         interior = defaultAdminInterior(),
-        features = { stash = true, wardrobe = true, garage = garageEnabled, furniture = false },
+        features = { stash = true, wardrobe = true, garage = garageEnabled, furniture = true },
         tax = {
           enabled = defaultTax.taxEnabled,
           amount = defaultTax.taxAmount,
