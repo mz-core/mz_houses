@@ -1,6 +1,12 @@
 MZHousesAccessPolicy = MZHousesAccessPolicy or {}
 
-local FEATURE_NAMES = { stash = true, wardrobe = true, garage = true, furniture = true }
+local FEATURE_NAMES = {
+  stash = true,
+  wardrobe = true,
+  garage = true,
+  furniture = true,
+  activities = true
+}
 
 local function trim(value)
   return tostring(value or ''):gsub('^%s+', ''):gsub('%s+$', '')
@@ -83,6 +89,10 @@ function MZHousesAccessPolicy.validateFeaturePolicy(featureName, raw)
   if not allowed[mode] then return false, 'invalid_feature_mode' end
   if featureName == 'furniture' and mode ~= 'inherit' and mode ~= 'disabled' and mode ~= 'owner' then
     return false, 'furniture_owner_only'
+  end
+  if featureName == 'activities' and mode ~= 'inherit' and mode ~= 'disabled'
+    and mode ~= 'rules' and mode ~= 'admin' then
+    return false, 'activities_organization_only'
   end
   if raw.match ~= nil and trim(raw.match):lower() ~= 'any' then return false, 'invalid_access_match' end
   local rules = type(raw.rules) == 'table' and raw.rules or {}

@@ -1802,7 +1802,7 @@ local function copyAccessPolicy(policy)
       canControlDoorFromGrade = tonumber(rule.canControlDoorFromGrade)
     }
   end
-  for _, featureName in ipairs({ 'stash', 'wardrobe', 'garage', 'furniture' }) do
+  for _, featureName in ipairs({ 'stash', 'wardrobe', 'garage', 'furniture', 'activities' }) do
     local feature = type(policy.features) == 'table' and policy.features[featureName] or nil
     local normalized = { mode = tostring(type(feature) == 'table' and feature.mode or 'inherit'), match = 'any', rules = {} }
     for _, rule in ipairs(type(feature) == 'table' and type(feature.rules) == 'table' and feature.rules or {}) do
@@ -1896,7 +1896,8 @@ local FEATURE_LABELS = {
   stash = 'Bau',
   wardrobe = 'Guarda-roupa',
   garage = 'Garagem',
-  furniture = 'Moveis (somente proprietario)'
+  furniture = 'Moveis (somente proprietario)',
+  activities = 'Atividades da instalacao'
 }
 
 local function featurePolicyCopy(property, featureName)
@@ -1936,7 +1937,7 @@ function MZHousesAdminMenu.OpenFeaturePermissions(code)
   local property = getProperty(code)
   if not property then return end
   local options = {}
-  for _, featureName in ipairs({ 'stash', 'wardrobe', 'garage', 'furniture' }) do
+  for _, featureName in ipairs({ 'stash', 'wardrobe', 'garage', 'furniture', 'activities' }) do
     local name = featureName
     local policy = featurePolicyCopy(property, name)
     options[#options + 1] = {
@@ -1945,6 +1946,7 @@ function MZHousesAdminMenu.OpenFeaturePermissions(code)
       icon = name == 'stash' and 'package-open'
         or name == 'wardrobe' and 'shirt'
         or name == 'furniture' and 'couch'
+        or name == 'activities' and 'industry'
         or 'car',
       onSelect = function() MZHousesAdminMenu.OpenFeaturePolicy(code, name) end
     }
@@ -1986,12 +1988,14 @@ function MZHousesAdminMenu.OpenFeaturePolicy(code, featureName)
   local options = {
     { title = 'Estado atual', description = featurePolicySummary(policy), disabled = true },
     { title = 'Ativado: herdar acesso', icon = 'git-merge', onSelect = function() fixed('inherit') end },
-    { title = 'Desativado', icon = 'ban', onSelect = function() fixed('disabled') end },
-    { title = 'Somente owner', icon = 'user-round', onSelect = function() fixed('owner') end },
-    { title = 'Owner e chaves', icon = 'key-round', onSelect = function() fixed('keys') end },
-    { title = 'Publico dentro da propriedade', icon = 'users', onSelect = function() fixed('public') end },
-    { title = 'Somente admin', icon = 'shield-lock', onSelect = function() fixed('admin') end }
+    { title = 'Desativado', icon = 'ban', onSelect = function() fixed('disabled') end }
   }
+  if featureName ~= 'activities' then
+    options[#options + 1] = { title = 'Somente owner', icon = 'user-round', onSelect = function() fixed('owner') end }
+    options[#options + 1] = { title = 'Owner e chaves', icon = 'key-round', onSelect = function() fixed('keys') end }
+    options[#options + 1] = { title = 'Publico dentro da propriedade', icon = 'users', onSelect = function() fixed('public') end }
+  end
+  options[#options + 1] = { title = 'Somente admin', icon = 'shield-lock', onSelect = function() fixed('admin') end }
   options[#options + 1] = {
     title = 'Adicionar regra gang', icon = 'shield', onSelect = function()
       local groups, err = groupOptions('gang')

@@ -230,7 +230,8 @@ local function normalizeHouseProperty(house)
       stash = features.stash ~= false,
       wardrobe = features.wardrobe ~= false,
       garage = features.garage == true,
-      furniture = features.furniture == true
+      furniture = features.furniture == true,
+      activities = features.activities == true
     }
   }
 end
@@ -531,7 +532,7 @@ local function getFeatureAccessRules(accessConfig, featureName)
 end
 
 local function buildFeatureAccessSummary(accessConfig)
-  local features = { 'stash', 'wardrobe', 'garage', 'furniture' }
+  local features = { 'stash', 'wardrobe', 'garage', 'furniture', 'activities' }
   local summary = {}
 
   for _, featureName in ipairs(features) do
@@ -1143,7 +1144,7 @@ end
 function MZHousesService.CanAccessPropertyFeature(source, houseCode, featureName, session, isAdmin)
   featureName = trim(featureName):lower()
   if featureName ~= 'stash' and featureName ~= 'wardrobe' and featureName ~= 'garage'
-    and featureName ~= 'furniture' then
+    and featureName ~= 'furniture' and featureName ~= 'activities' then
     return false, 'invalid_feature'
   end
   if featureName == 'furniture' then
@@ -1167,7 +1168,7 @@ function MZHousesService.CanAccessPropertyFeature(source, houseCode, featureName
   end
 
   local sessionKind = trim(session.kind):lower()
-  if featureName == 'stash' or featureName == 'wardrobe' then
+  if featureName == 'stash' or featureName == 'wardrobe' or featureName == 'activities' then
     if sessionKind ~= 'interior' then return false, 'not_inside_property' end
   elseif sessionKind ~= 'interior' and sessionKind ~= 'external_garage' then
     return false, 'invalid_garage_context'
@@ -1250,7 +1251,7 @@ function MZHousesService.getPlayerCitizenId(src)
   end
 
   local ok, player = pcall(function()
-    return exports['mz_core']:GetPlayer(src)
+    return exports['mz_core']:GetPlayerSnapshot(src)
   end)
 
   if not ok or type(player) ~= 'table' then
@@ -1693,7 +1694,22 @@ local function openHouseWardrobeForPlayer(source, houseCode, wardrobe)
     shopId = 'clothing_1'
   end
 
-  TriggerClientEvent('mz_clothing:client:openShop', source, shopId)
+  local lifecycleId
+  if GetResourceState('mz_banguard') == 'started' then
+    local issued = pcall(function()
+      lifecycleId = exports['mz_banguard']:BeginSecurityLifecycle(source, 'cosmetic_session', 180000, {
+        bucket = GetPlayerRoutingBucket(source), houseCode = houseCode, reason = 'house_wardrobe'
+      })
+    end)
+    if not issued or type(lifecycleId) ~= 'string' then
+      return false, 'security_session_failed'
+    end
+  end
+
+  TriggerClientEvent('mz_clothing:client:openShop', source, {
+    shopId = shopId,
+    securityLifecycleId = lifecycleId
+  })
   return true, {
     resource = resource,
     shopId = shopId,
@@ -2356,6 +2372,37 @@ local function buildingNumberFromCode(code)
   return numberText or tostring(code or ''):gsub('^apt_building_', ''):gsub('[^%w]', '')
 end
 
+function MZHousesService.ListAvailableIPLInteriors()
+  if GetResourceState('mz_interiors') ~= 'started' then return {} end
+  local ok, interiors = pcall(function()
+    return exports['mz_interiors']:GetIPLInteriors()
+  end)
+  if not ok or type(interiors) ~= 'table' then return {} end
+  return interiors
+end
+
+function MZHousesService.IsIPLSelectable(interiorCode)
+  interiorCode = trim(interiorCode)
+  if interiorCode == '' then return false, 'invalid_ipl_interior' end
+  for _, interior in ipairs(MZHousesService.ListAvailableIPLInteriors()) do
+    if trim(interior.name) == interiorCode then
+      if interior.enabled == true and interior.selectable ~= false
+          and interior.calibrated == true then
+        return true, 'ok'
+      end
+      return false, interior.disabledReason or 'ipl_interior_disabled'
+    end
+  end
+  return false, 'ipl_interior_not_found'
+end
+
+function MZHousesService.IsInteriorSelectable(interiorType, interiorCode)
+  interiorType = trim(interiorType):lower()
+  if interiorType == 'shell' then return MZHousesService.IsShellSelectable(interiorCode) end
+  if interiorType == 'ipl' then return MZHousesService.IsIPLSelectable(interiorCode) end
+  return false, 'unsupported_house_type'
+end
+
 local function normalizeApartmentUnitNumber(value)
   local unit = trim(value):lower()
   if unit == '' or #unit > 30 or not unit:match('^[%w_%-]+$') then return nil end
@@ -2384,7 +2431,8 @@ local function defaultAdminFeatures()
     stash = true,
     wardrobe = true,
     garage = false,
-    furniture = true
+    furniture = true,
+    activities = false
   }
 end
 
@@ -3024,10 +3072,13 @@ function MZHousesService.updateAdminProperty(actorSource, houseCode, patch, acti
       patch.interior.entry_spawn = nil
     end
   end
-  if patch.shell ~= nil then
-    local shellOk, shellErr = MZHousesService.IsShellSelectable(patch.shell)
+  if patch.shell ~= nil or patch.type ~= nil then
+    local existing = RuntimeHouses[code] or MZHousesRepository.getHouseByCode(code) or {}
+    local targetType = trim(patch.type or existing.type or 'shell'):lower()
+    local targetCode = trim(patch.shell or existing.shell)
+    local shellOk, shellErr = MZHousesService.IsInteriorSelectable(targetType, targetCode)
     if not shellOk then
-      return false, shellErr or 'invalid_shell'
+      return false, shellErr or 'invalid_interior'
     end
   end
 
@@ -3511,6 +3562,35 @@ function MZHousesService.getAdminPropertyInfo(houseCode)
     keyCount = #keys,
     database = databaseEnabled()
   }, nil
+end
+
+-- Contexto minimo para integracoes server-side. Nao inclui owner, chaves,
+-- policy, metadata, coordenadas ou dados fiscais/financeiros.
+function MZHousesService.getIntegrationPropertyContext(houseCode)
+  local access, err, code, house = MZHousesService.getAccessState(houseCode)
+  if not access then return nil, err or 'house_not_found' end
+  house = RuntimeHouses[code] or house or {}
+  local property = normalizeHouseProperty(house)
+  return {
+    propertyId = tonumber(house.id),
+    code = code,
+    category = property.category,
+    subtype = property.subtype,
+    ownerType = property.ownerType,
+    orgCode = property.orgCode,
+    type = trim(house.type),
+    shell = trim(house.shell),
+    interiorCode = trim(house.shell),
+    status = trim(access.status):lower(),
+    enabled = access.enabled == true,
+    features = {
+      stash = property.features.stash == true,
+      wardrobe = property.features.wardrobe == true,
+      garage = property.features.garage == true,
+      furniture = property.features.furniture == true,
+      activities = property.features.activities == true
+    }
+  }
 end
 
 function MZHousesService.GetPropertyByCode(houseCode)

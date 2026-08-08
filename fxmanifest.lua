@@ -4,7 +4,7 @@ lua54 'yes'
 
 author 'MZ'
 description 'Minimal data-driven houses MVP for mz_interiors'
-version '0.1.0'
+version '0.2.0'
 
 shared_scripts {
   '@ox_lib/init.lua',

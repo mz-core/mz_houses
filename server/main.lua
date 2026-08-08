@@ -33,6 +33,13 @@ local HouseBuckets = {}
 local NextHouseBucket = 5000
 local SensitiveRate = {}
 
+local function propertyActionAllowed(source)
+  local ok, allowed, result = pcall(function()
+    return exports['mz_core']:CanPlayerPerformAction(source, 'property.use')
+  end)
+  return ok and allowed == true and type(result) == 'table' and result.allowed == true
+end
+
 local function houseSessionPayload(src, session)
   if type(session) ~= 'table' then return nil end
   return {
@@ -73,6 +80,11 @@ local function clearHouseSession(src, reason)
   local previous = HouseSessions[src]
   HouseSessions[src] = nil
   if previous then
+    if previous.securityLifecycleId and GetResourceState('mz_banguard') == 'started' then
+      pcall(function()
+        exports['mz_banguard']:EndSecurityLifecycle(src, previous.securityLifecycleId, reason or 'house_session_cleared')
+      end)
+    end
     TriggerEvent(
       'mz_houses:server:interiorSessionEnded',
       src,
@@ -101,20 +113,28 @@ local function nearCoords(src, point, maxDistance)
   return (dx * dx + dy * dy + dz * dz) <= ((maxDistance or 6.0) ^ 2)
 end
 
-AddEventHandler('mz_houses:server:propertyAccessChanged', function(code, reason)
+local function invalidatePropertySessions(code, reason, force)
   code = trim(code)
   local preserveOccupants = reason == 'owner_key_revoked'
+  local removed = 0
   for src, session in pairs(HouseSessions) do
     if session.code == code and preserveOccupants ~= true then
       local ace = trim(((MZHousesConfig or {}).Admin or {}).ace)
       local admin = ace ~= '' and IsPlayerAceAllowed(src, ace) == true
       local allowed = MZHousesService and MZHousesService.canEnterHouse(src, code, admin)
-      if allowed ~= true or reason == 'house.admin.shell.set' or reason == 'house.admin.archive' or reason == 'house.admin.disable' then
+      if force == true or allowed ~= true or reason == 'house.admin.shell.set'
+        or reason == 'house.admin.archive' or reason == 'house.admin.disable' then
         TriggerClientEvent('mz_houses:client:forceExit', src, reason or 'access_changed')
         clearHouseSession(src, reason or 'access_changed')
+        removed = removed + 1
       end
     end
   end
+  return removed
+end
+
+AddEventHandler('mz_houses:server:propertyAccessChanged', function(code, reason)
+  invalidatePropertySessions(code, reason, false)
 end)
 
 local function debugLog(message, data)
@@ -183,6 +203,7 @@ local function featuresToText(features)
   if features.wardrobe == true then names[#names + 1] = 'wardrobe' end
   if features.garage == true then names[#names + 1] = 'garage' end
   if features.furniture == true then names[#names + 1] = 'furniture' end
+  if features.activities == true then names[#names + 1] = 'activities' end
 
   if #names == 0 then
     return 'none'
@@ -475,6 +496,80 @@ end
 local function registerAdminCommands()
   local admin = MZHousesConfig.Admin or {}
 
+  RegisterCommand('mhouse_prepare_org_facility', function(source, args)
+    if tonumber(source) ~= 0 then
+      return reply(source, 'Este preparador e exclusivo do console do servidor.')
+    end
+    if GetConvarInt('mz_houses_org_facility_runner', 0) ~= 1 then
+      return reply(source, 'Preparacao bloqueada: runner_convar_disabled.')
+    end
+    if trim(GetConvar('mz_org_activities_environment', '')):lower() ~= 'staging' then
+      return reply(source, 'Preparacao bloqueada: staging_environment_required.')
+    end
+    local backupReference = trim(GetConvar('mz_org_activities_backup_confirmed', ''))
+    if backupReference == '' or backupReference == '0' then
+      return reply(source, 'Preparacao bloqueada: backup_attestation_required.')
+    end
+    local code = trim(args and args[1])
+    local orgCode = trim(args and args[2]):lower()
+    local interiorCode = trim(args and args[3] or 'meth_lab'):lower()
+    if code == '' or orgCode == '' or interiorCode == '' then
+      return reply(source, 'Uso: mhouse_prepare_org_facility codigo orgCode [interiorCode]')
+    end
+    local group, groupErr = MZHousesGroups.get('gang', orgCode)
+    if not group then
+      return reply(source, ('Preparacao bloqueada: %s.'):format(tostring(groupErr or 'group_not_found')))
+    end
+    local gangRule = {
+      type = 'gang', name = orgCode, minimumGrade = 0,
+      requireDuty = false, canControlDoorFromGrade = 3
+    }
+    local featureRule = {
+      type = 'gang', name = orgCode, minimumGrade = 0, requireDuty = false
+    }
+    local accessPolicy = {
+      version = 1,
+      mode = 'rules',
+      match = 'any',
+      rules = { gangRule },
+      features = {
+        stash = { mode = 'inherit', match = 'any', rules = {} },
+        wardrobe = { mode = 'inherit', match = 'any', rules = {} },
+        garage = { mode = 'disabled', match = 'any', rules = {} },
+        furniture = { mode = 'disabled', match = 'any', rules = {} },
+        activities = { mode = 'rules', match = 'any', rules = { featureRule } }
+      }
+    }
+    adminUpdate(source, code, {
+      category = 'organization',
+      subtype = 'facility',
+      ownerType = 'server',
+      orgCode = orgCode,
+      type = 'ipl',
+      shell = interiorCode,
+      interior = {},
+      accessPolicy = accessPolicy,
+      features = {
+        stash = true,
+        wardrobe = true,
+        garage = false,
+        furniture = false,
+        activities = true
+      },
+      public = false,
+      enabled = true,
+      status = 'active',
+      realestate = {
+        enabled = false, canBeListed = false,
+        defaultPrice = nil, listingType = 'sale'
+      }
+    }, 'house.admin.org_facility.prepare', {
+      orgCode = orgCode,
+      interiorCode = interiorCode,
+      backupReference = backupReference
+    }, ('Facility preparada: casa=%s org=%s interior=%s.'):format(code, orgCode, interiorCode))
+  end, true)
+
   RegisterCommand(tostring(admin.setOwner or 'mhouse_setowner'), function(source, args)
     if not isHouseAdmin(source) then
       return reply(source, 'Voce nao tem permissao para usar este comando.')
@@ -711,6 +806,18 @@ local function registerAdminCommands()
       shell = shell,
       resetInteriorOverrides = true
     }, 'Shell atualizado. Overrides internos resetados.')
+  end, false)
+
+  RegisterCommand(tostring(admin.setIpl or 'mhouse_setipl'), function(source, args)
+    local interiorCode = trim(args and args[2])
+    if trim(args and args[1]) == '' or interiorCode == '' then
+      return reply(source, 'Uso: /mhouse_setipl codigo interiorCode')
+    end
+    adminUpdate(source, args[1], {
+      shell = interiorCode, type = 'ipl', interior = {}
+    }, 'house.admin.ipl.set', {
+      interiorCode = interiorCode, resetInteriorOverrides = true
+    }, 'IPL atualizado. Overrides internos resetados.')
   end, false)
 
   RegisterCommand(tostring(admin.setCategory or 'mhouse_setcategory'), function(source, args)
@@ -1060,6 +1167,8 @@ lib.callback.register('mz_houses:server:canPropertyBeListed', function(source, p
 end)
 
 lib.callback.register('mz_houses:server:canEnterHouse', function(source, payload)
+  local stateOk, stateResult = exports['mz_core']:CanPlayerPerformAction(source, 'property.use')
+  if not stateOk or not stateResult or stateResult.allowed ~= true then return { ok = false, error = 'player_state_blocked' } end
   local houseCode = type(payload) == 'table' and payload.houseCode or payload
   local ok, result = MZHousesService.canEnterHouse(source, houseCode, isHouseAdmin(source))
   if not ok then
@@ -1091,8 +1200,16 @@ lib.callback.register('mz_houses:server:canEnterHouse', function(source, payload
 end)
 
 lib.callback.register('mz_houses:server:beginEnterHouse', function(source, payload)
-  if not allowSensitive(source, 'enter', 5, 10) then return { ok = false, error = 'rate_limited' } end
+  local stateOk, stateResult = exports['mz_core']:CanPlayerPerformAction(source, 'property.use')
+  if not stateOk or not stateResult or stateResult.allowed ~= true then return { ok = false, error = 'player_state_blocked' } end
   payload = type(payload) == 'table' and payload or {}
+  if GetResourceState('mz_banguard') == 'started' then
+    local called, valid = pcall(function()
+      return exports['mz_banguard']:ValidateEventContract(source, 'lifecycle.house.enter', payload)
+    end)
+    if not called or valid ~= true then return { ok = false, error = 'invalid_security_contract' } end
+  end
+  if not allowSensitive(source, 'enter', 5, 10) then return { ok = false, error = 'rate_limited' } end
   local code = trim(payload.houseCode or payload.code)
   if HouseSessions[source] then return { ok = false, error = 'already_inside_house' } end
   local player = Player(source)
@@ -1124,9 +1241,22 @@ lib.callback.register('mz_houses:server:beginEnterHouse', function(source, paylo
     local inherited = MZHousesService.revalidateInheritedHouseAccess(source, code, isHouseAdmin(source))
     if inherited == true then isGuest = false end
   end
+  local lifecycleId
+  if GetResourceState('mz_banguard') == 'started' then
+    local issued = pcall(function()
+      lifecycleId = exports['mz_banguard']:BeginSecurityLifecycle(
+        source, 'interior_transition', 15000, {
+          bucket = bucket, houseCode = code, reason = 'house_enter'
+        }
+      )
+    end)
+    if not issued or type(lifecycleId) ~= 'string' then
+      return { ok = false, error = 'security_session_failed' }
+    end
+  end
   HouseSessions[source] = {
     code = code, bucket = bucket, enteredAt = os.time(), confirmed = false,
-    accessReason = accessReason, isGuest = isGuest
+    accessReason = accessReason, isGuest = isGuest, securityLifecycleId = lifecycleId
   }
   SetPlayerRoutingBucket(source, bucket)
   if player and player.state then player.state:set('mzHouseCode', code, true) end
@@ -1141,6 +1271,15 @@ end)
 
 lib.callback.register('mz_houses:server:confirmEnterHouse', function(source, payload)
   payload = type(payload) == 'table' and payload or {}
+  if GetResourceState('mz_banguard') == 'started' then
+    local called, valid = pcall(function()
+      return exports['mz_banguard']:ValidateEventContract(source, 'lifecycle.house.confirm', payload)
+    end)
+    if not called or valid ~= true then
+      clearHouseSession(source, 'invalid_security_contract')
+      return { ok = false, error = 'invalid_security_contract' }
+    end
+  end
   local session = HouseSessions[source]
   if not session or session.code ~= trim(payload.houseCode or payload.code) then
     clearHouseSession(source, 'invalid_confirmation')
@@ -1170,6 +1309,19 @@ CreateThread(function()
 end)
 
 lib.callback.register('mz_houses:server:leaveHouse', function(source)
+  if GetResourceState('mz_banguard') == 'started' then
+    local called, valid = pcall(function()
+      return exports['mz_banguard']:ValidateEventContract(source, 'lifecycle.house.leave', {})
+    end)
+    if not called or valid ~= true then return { ok = false, error = 'invalid_security_contract' } end
+  end
+  if HouseSessions[source] and GetResourceState('mz_banguard') == 'started' then
+    pcall(function()
+      exports['mz_banguard']:BeginSecurityLifecycle(source, 'interior_transition', 15000, {
+        houseCode = HouseSessions[source].code, reason = 'house_leave'
+      })
+    end)
+  end
   clearHouseSession(source, 'player_left')
   return { ok = true }
 end)
@@ -1213,6 +1365,34 @@ local function confirmedInteriorFeatureSession(source, houseCode)
     kind = 'interior',
     isGuest = session.isGuest == true,
     bucket = tonumber(session.bucket)
+  }
+end
+
+local function confirmedInteriorIntegrationContext(source, houseCode)
+  source = tonumber(source)
+  if not source or source <= 0 or not GetPlayerName(source) then
+    return false, 'player_not_loaded'
+  end
+  local session, sessionErr = confirmedInteriorFeatureSession(source, houseCode)
+  if not session then return false, sessionErr end
+  local property, propertyErr = MZHousesService.getIntegrationPropertyContext(session.code)
+  if not property then return false, propertyErr or 'house_not_found' end
+  if property.enabled ~= true or property.status ~= 'active' then return false, 'house_disabled' end
+  return true, {
+    propertyId = property.propertyId,
+    code = property.code,
+    category = property.category,
+    subtype = property.subtype,
+    ownerType = property.ownerType,
+    orgCode = property.orgCode,
+    type = property.type,
+    shell = property.shell,
+    interiorCode = property.interiorCode or property.shell,
+    bucket = session.bucket,
+    isGuest = session.isGuest == true,
+    confirmed = true,
+    kind = 'interior',
+    features = property.features
   }
 end
 
@@ -1260,7 +1440,7 @@ lib.callback.register('mz_houses:server:getFeatureContext', function(source, pay
   session.silent = true
 
   local result = {}
-  for _, featureName in ipairs({ 'stash', 'wardrobe', 'garage', 'furniture' }) do
+  for _, featureName in ipairs({ 'stash', 'wardrobe', 'garage', 'furniture', 'activities' }) do
     local allowed = MZHousesService.CanAccessPropertyFeature(
       source,
       session.code,
@@ -1299,6 +1479,7 @@ lib.callback.register('mz_houses:server:getPropertyTaxStatus', function(source, 
 end)
 
 lib.callback.register('mz_houses:server:payPropertyTax', function(source, payload)
+  if not propertyActionAllowed(source) then return { ok = false, reason = 'player_state_blocked' } end
   if not allowSensitive(source, 'tax_pay', 3, 10) then return { ok = false, reason = 'rate_limited', message = 'Aguarde antes de tentar novamente.' } end
   payload = type(payload) == 'table' and payload or {}
   local ok, result = MZHousesTax.pay(source, payload.houseCode or payload.code)
@@ -1334,6 +1515,7 @@ RegisterNetEvent('mz_houses:server:taxPlayerReady', function()
 end)
 
 lib.callback.register('mz_houses:server:setDoorState', function(source, payload)
+  if not propertyActionAllowed(source) then return { ok = false, error = 'player_state_blocked' } end
   if not allowSensitive(source, 'door', 10, 10) then return { ok = false, error = 'rate_limited' } end
   payload = type(payload) == 'table' and payload or {}
   local code = trim(payload.houseCode or payload.code)
@@ -1344,6 +1526,7 @@ lib.callback.register('mz_houses:server:setDoorState', function(source, payload)
 end)
 
 local PURCHASE_MESSAGES = {
+  player_state_blocked = { 'player_state_blocked', 'Esta acao nao esta disponivel no estado atual.' },
   rate_limited = { 'rate_limited', 'Aguarde antes de tentar comprar novamente.' },
   invalid_house = { 'invalid_property', 'Propriedade inválida.' },
   must_purchase_at_entrance = { 'invalid_purchase_context', 'A compra deve ser feita na entrada da propriedade.' },
@@ -1404,6 +1587,7 @@ local function purchaseCallbackDebug(stage, source, code, detail)
 end
 
 lib.callback.register('mz_houses:server:purchaseProperty', function(source, payload)
+  if not propertyActionAllowed(source) then return purchaseFailure('player_state_blocked') end
   payload = type(payload) == 'table' and payload or {}
   local code = trim(payload.houseCode or payload.code)
   pcall(purchaseCallbackDebug, 'callback_received', source, code)
@@ -1452,6 +1636,7 @@ lib.callback.register('mz_houses:server:purchaseProperty', function(source, payl
 end)
 
 lib.callback.register('mz_houses:server:purchaseApartmentUnit', function(source, payload)
+  if not propertyActionAllowed(source) then return purchaseFailure('player_state_blocked') end
   payload = type(payload) == 'table' and payload or {}
   local buildingCode = trim(payload.buildingCode)
   local unitCode = trim(payload.unitCode or payload.houseCode or payload.code)
@@ -1499,6 +1684,8 @@ lib.callback.register('mz_houses:server:purchaseApartmentUnit', function(source,
 end)
 
 lib.callback.register('mz_houses:server:openHouseStash', function(source, payload)
+  local stateOk, stateResult = exports['mz_core']:CanPlayerPerformAction(source, 'property.use')
+  if not stateOk or not stateResult or stateResult.allowed ~= true then return { ok = false, error = 'player_state_blocked' } end
   if not allowSensitive(source, 'stash', 10, 10) then return { ok = false, error = 'rate_limited' } end
   local houseCode = type(payload) == 'table' and payload.houseCode or payload
   local session, sessionErr = confirmedInteriorFeatureSession(source, houseCode)
@@ -1524,6 +1711,8 @@ lib.callback.register('mz_houses:server:openHouseStash', function(source, payloa
 end)
 
 lib.callback.register('mz_houses:server:openHouseWardrobe', function(source, payload)
+  local stateOk, stateResult = exports['mz_core']:CanPlayerPerformAction(source, 'property.use')
+  if not stateOk or not stateResult or stateResult.allowed ~= true then return { ok = false, error = 'player_state_blocked' } end
   if not allowSensitive(source, 'wardrobe', 10, 10) then return { ok = false, error = 'rate_limited' } end
   local houseCode = type(payload) == 'table' and payload.houseCode or payload
   local session, sessionErr = confirmedInteriorFeatureSession(source, houseCode)
@@ -1547,6 +1736,8 @@ lib.callback.register('mz_houses:server:openHouseWardrobe', function(source, pay
 end)
 
 lib.callback.register('mz_houses:server:openHouseGarage', function(source, payload)
+  local stateOk, stateResult = exports['mz_core']:CanPlayerPerformAction(source, 'property.use')
+  if not stateOk or not stateResult or stateResult.allowed ~= true then return { ok = false, error = 'player_state_blocked' } end
   if not allowSensitive(source, 'garage', 10, 10) then return { ok = false, error = 'rate_limited' } end
   local houseCode = type(payload) == 'table' and payload.houseCode or payload
   local action = type(payload) == 'table' and payload.action or 'open'
@@ -1656,6 +1847,18 @@ end)
 
 exports('GetPropertyByCode', function(code)
   return MZHousesService.GetPropertyByCode(code)
+end)
+
+exports('GetIntegrationPropertyContext', function(code)
+  return MZHousesService.getIntegrationPropertyContext(code)
+end)
+
+exports('InvalidateOrganizationFacilitySessions', function(code, orgCode, reason)
+  if GetInvokingResource() ~= 'mz_org_activities' then return false, 'forbidden' end
+  local property, propertyErr = MZHousesService.getIntegrationPropertyContext(code)
+  if not property then return false, propertyErr or 'house_not_found' end
+  if trim(property.orgCode):lower() ~= trim(orgCode):lower() then return false, 'organization_mismatch' end
+  return true, { removed = invalidatePropertySessions(code, reason or 'facility_changed', true) }
 end)
 
 exports('GetPublicPropertyInfo', function(code)
@@ -1789,6 +1992,10 @@ exports('CanAccessPropertyFeature', function(source, houseCode, featureName)
   return MZHousesService.CanAccessPropertyFeature(source, houseCode, featureName, session, isHouseAdmin(source))
 end)
 
+exports('GetConfirmedInteriorSession', function(source, houseCode)
+  return confirmedInteriorIntegrationContext(tonumber(source), houseCode)
+end)
+
 exports('CanDecorateProperty', function(source, houseCode)
   local session, sessionErr = confirmedInteriorFeatureSession(source, houseCode)
   if not session then return false, sessionErr end
@@ -1833,7 +2040,16 @@ end)
 
 exports('SetPropertyInterior', function(code, shell, interior, actorSource)
   if not isHouseAdmin(actorSource) then return false, 'admin_required' end
-  return MZHousesService.updateAdminProperty(actorSource, code, { shell = shell, interior = interior }, 'house.admin.interior.set')
+  return MZHousesService.updateAdminProperty(actorSource, code, {
+    type = 'shell', shell = shell, interior = interior
+  }, 'house.admin.interior.set')
+end)
+
+exports('SetPropertyIPL', function(code, interiorCode, interior, actorSource)
+  if not isHouseAdmin(actorSource) then return false, 'admin_required' end
+  return MZHousesService.updateAdminProperty(actorSource, code, {
+    type = 'ipl', shell = interiorCode, interior = interior or {}
+  }, 'house.admin.ipl.set')
 end)
 
 exports('SetPropertyGarage', function(code, garage, actorSource)

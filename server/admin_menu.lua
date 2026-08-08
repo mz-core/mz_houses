@@ -278,7 +278,8 @@ local function defaultFeatures(property)
     stash = features.stash == true,
     wardrobe = features.wardrobe == true,
     garage = features.garage == true,
-    furniture = features.furniture == true
+    furniture = features.furniture == true,
+    activities = features.activities == true
   }
 end
 

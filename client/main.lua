@@ -25,6 +25,13 @@ local function trim(value)
   return tostring(value or ''):gsub('^%s+', ''):gsub('%s+$', '')
 end
 
+function MZHouses.CanPerformPropertyAction()
+  local ok, allowed = pcall(function()
+    return exports['mz_core']:CanLocalPlayerPerformAction('property.use')
+  end)
+  return ok and allowed == true
+end
+
 local function normalizeDoorState(value)
   local state = trim(value):lower()
   if state == 'unlocked' or state == 'blocked' then return state end
@@ -488,6 +495,7 @@ end
 
 local function friendlyDoorError(err)
   local messages = {
+    player_state_blocked = 'Esta ação não está disponível no estado atual.',
     door_blocked = 'A porta está interditada.',
     admin_required = 'A porta está interditada.',
     door_control_denied = 'Você não possui controle desta porta.',
@@ -543,6 +551,10 @@ end
 function MZHouses.ToggleDoor(houseCode)
   local code = trim(houseCode)
   if code == '' then return false, 'invalid_house' end
+  if not MZHouses.CanPerformPropertyAction() then
+    MZHouses.Notify(friendlyDoorError('player_state_blocked'), 'error')
+    return false, 'player_state_blocked'
+  end
   local now = GetGameTimer()
   if DoorToggleBusy or now < DoorToggleCooldownUntil then return false, 'door_toggle_busy' end
   local ped = PlayerPedId()
@@ -1141,13 +1153,14 @@ function MZHouses.EnterHouse(houseCode, options)
 
   closeMzMenu()
 
-  if tostring(house.type or 'shell') ~= 'shell' then
+  local interiorType = tostring(house.type or 'shell'):lower()
+  if interiorType ~= 'shell' and interiorType ~= 'ipl' then
     return false, 'unsupported_house_type'
   end
 
   local shellName = trim(house.shell)
   if shellName == '' then
-    return false, 'missing_shell'
+    return false, interiorType == 'ipl' and 'missing_ipl_interior' or 'missing_shell'
   end
 
   local entryContext = nil
@@ -1181,9 +1194,9 @@ function MZHouses.EnterHouse(houseCode, options)
   local customEntryOffset = authorizedEntry.mode == 'custom' and asVector3(authorizedEntry.coords) or nil
 
   local callOk, ok, resultOrErr = pcall(function()
-    return exports['mz_interiors']:EnterShell(shellName, entrance, {
+    local options = {
       instanceId = ('house:%s'):format(code),
-      spawnBase = MZHousesConfig.InteriorSpawnBase,
+      spawnBase = interiorType == 'shell' and MZHousesConfig.InteriorSpawnBase or nil,
       --heading = entrance.w,
       entryOffset = customEntryOffset,
       entryHeading = customEntryOffset and (tonumber(authorizedEntry.heading) or 0.0) or nil,
@@ -1195,7 +1208,11 @@ function MZHouses.EnterHouse(houseCode, options)
         status = house.status or 'debug',
         accessReason = type(accessOrErr) == 'table' and accessOrErr.reason or nil
       }
-    })
+    }
+    if interiorType == 'ipl' then
+      return exports['mz_interiors']:EnterIPL(shellName, entrance, options)
+    end
+    return exports['mz_interiors']:EnterShell(shellName, entrance, options)
   end)
 
   if not callOk then
@@ -1250,6 +1267,7 @@ function MZHouses.EnterHouse(houseCode, options)
 
   MZHouses.Debug('entered_house', {
     house = code,
+    interiorType = interiorType,
     shell = shellName,
     entrySpawnMode = customEntryOffset and 'custom' or 'default'
   })
@@ -2198,6 +2216,7 @@ end)
 
 function MZHouses.OpenDoorMenu(houseCode)
   local code = trim(houseCode)
+  if not MZHouses.CanPerformPropertyAction() then return false, 'player_state_blocked' end
   local context, contextErr = MZHouses.GetDoorContext(code, true)
   if not context then return false, contextErr or 'door_context_failed' end
   local stateLabel = MZHouses.DoorStateLabel(context.state)

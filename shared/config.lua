@@ -68,6 +68,7 @@ MZHousesConfig.Admin = {
   setLabel = 'mhouse_setlabel',
   setEntrance = 'mhouse_setentrance',
   setShell = 'mhouse_setshell',
+  setIpl = 'mhouse_setipl',
   setCategory = 'mhouse_setcategory',
   setOrg = 'mhouse_setorg',
   setPublic = 'mhouse_setpublic',
@@ -152,7 +153,9 @@ MZHousesConfig.PropertyDefaults = {
     stash = true,
     wardrobe = true,
     garage = false,
-    furniture = true
+    furniture = true,
+    -- Instalacoes organizacionais permanecem opt-in e fail-closed.
+    activities = false
   }
 }
 

@@ -198,7 +198,7 @@ end
 
 local function onlineIdentityByCitizenId(citizenid)
   if GetResourceState('mz_core') ~= 'started' then return nil, nil end
-  local ok, player = pcall(function() return exports['mz_core']:GetPlayerByCitizenId(citizenid) end)
+  local ok, player = pcall(function() return exports['mz_core']:GetPlayerByCitizenIdSnapshot(citizenid) end)
   if not ok or type(player) ~= 'table' then return nil, nil end
   local source = tonumber(player.source)
   local charinfo = type(player.charinfo) == 'table' and player.charinfo or {}
@@ -253,7 +253,7 @@ function MZHousesPlayerPanel.GetNearbyPlayersForPropertyKey(source, houseCode)
       if distance and distance <= maximum then
         local citizenid = MZHousesService.getPlayerCitizenId(target)
         if citizenid and citizenid ~= ownerCitizenId then
-          local player = exports['mz_core']:GetPlayer(target)
+          local player = exports['mz_core']:GetPlayerSnapshot(target)
           local charinfo = type(player) == 'table' and type(player.charinfo) == 'table' and player.charinfo or {}
           local name = trim(('%s %s'):format(charinfo.firstname or '', charinfo.lastname or ''))
           if name == '' then name = GetPlayerName(target) or ('ID %d'):format(target) end

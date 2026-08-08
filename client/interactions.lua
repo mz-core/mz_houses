@@ -52,6 +52,9 @@ local function removeInteractPoints()
 end
 
 local function canShowDoorAction(code, house)
+  if type(MZHouses.CanPerformPropertyAction) ~= 'function' or not MZHouses.CanPerformPropertyAction() then
+    return false
+  end
   local ped = PlayerPedId()
   if IsPedInAnyVehicle(ped, false) then return false end
   local coords = getHouseEntrance(house)

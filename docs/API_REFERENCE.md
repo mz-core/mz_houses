@@ -25,6 +25,8 @@ Leitura e autorizacao:
 
 - `CanEnterHouse(source, houseCode)`
 - `GetPropertyByCode(code)` e `GetPublicPropertyInfo(code)`
+- `GetIntegrationPropertyContext(code)` retorna contexto minimo server-side para
+  vinculos persistentes, sem owner, chaves, policy, coordenadas ou financas.
 - `ListProperties(filters)`
 - `CanPlayerAccessProperty(source, code)`
 - `CanPlayerManageProperty(source, code)`
@@ -34,6 +36,12 @@ Leitura e autorizacao:
 - `CanPropertyBeListed(code)` (legado; sempre respeita o comercio atual)
 - `GetHouseAccess(houseCode)`
 - `CanAccessPropertyFeature(source, houseCode, featureName)`
+- `GetConfirmedInteriorSession(source, houseCode)` retorna somente contexto minimo
+  server-side da sessao confirmada (`propertyId`, code, orgCode, type,
+  interiorCode/shell, bucket,
+  guest e features), sem owner, chaves, policy, metadata ou coordenadas.
+- `InvalidateOrganizationFacilitySessions(code, orgCode, reason)` e restrito ao
+  `mz_org_activities` e remove ocupantes quando uma instalacao e suspensa.
 - `ListPropertyKeys(code, actorSource)`
 - `GetPropertyTaxStatus(code, source)`
 - `GetPlayerOwnedProperties(source)`
@@ -54,6 +62,8 @@ Mutacoes administrativas:
 - `UpdateProperty(code, patch, actorSource)`
 - `DeleteProperty(code, actorSource, confirmCode)` (soft delete)
 - `SetPropertyEntrance`, `SetPropertyInterior`, `SetPropertyGarage`, `SetPropertyEnabled`
+- `SetPropertyIPL(code, interiorCode, interior, actorSource)` aceita somente IPL
+  cadastrado no `mz_interiors` com `enabled=true` e `calibrated=true`.
 - `SetPropertySale(code, commerce, actorSource)`
 - `ConfigurePropertyTax(code, tax, actorSource, options)`
 

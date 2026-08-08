@@ -96,7 +96,8 @@ local function getPropertyDefaults()
       stash = features.stash ~= false,
       wardrobe = features.wardrobe ~= false,
       garage = features.garage == true,
-      furniture = features.furniture == true
+      furniture = features.furniture == true,
+      activities = features.activities == true
     }
   }
 end
@@ -109,7 +110,8 @@ local function normalizeFeatures(features, defaults)
     stash = normalizeFeatureBool(features.stash, defaults.stash),
     wardrobe = normalizeFeatureBool(features.wardrobe, defaults.wardrobe),
     garage = normalizeFeatureBool(features.garage, defaults.garage),
-    furniture = normalizeFeatureBool(features.furniture, defaults.furniture)
+    furniture = normalizeFeatureBool(features.furniture, defaults.furniture),
+    activities = normalizeFeatureBool(features.activities, defaults.activities)
   }
 end
 
@@ -164,7 +166,7 @@ local function normalizeAccessPolicy(data)
   local rules = normalizePolicyRules(data.rules, true)
 
   local features = {}
-  for _, name in ipairs({ 'stash', 'wardrobe', 'garage', 'furniture' }) do
+  for _, name in ipairs({ 'stash', 'wardrobe', 'garage', 'furniture', 'activities' }) do
     features[name] = normalizeFeaturePolicy(type(data.features) == 'table' and data.features[name] or nil)
   end
 
