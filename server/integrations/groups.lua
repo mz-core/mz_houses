@@ -7,15 +7,15 @@ local function trim(value)
   return tostring(value or ''):gsub('^%s+', ''):gsub('%s+$', '')
 end
 
-local function coreExport(name, ...)
-  if GetResourceState('mz_core') ~= 'started' then
-    return nil, 'core_unavailable'
+local function orgExport(name, ...)
+  if GetResourceState('mz_org') ~= 'started' then
+    return nil, 'org_unavailable'
   end
 
   local args = { ... }
   local ok, result = pcall(function()
-    local core = exports['mz_core']
-    return core[name](core, table.unpack(args))
+    local org = exports['mz_org']
+    return org[name](org, table.unpack(args))
   end)
   if not ok then return nil, 'group_provider_failed' end
   return result
@@ -30,7 +30,7 @@ function MZHousesGroups.list(groupType)
   groupType = validType(groupType)
   if not groupType then return nil, 'invalid_group_type' end
 
-  local rows, err = coreExport('ListOrgs', groupType)
+  local rows, err = orgExport('ListOrgs', groupType)
   if type(rows) ~= 'table' then return nil, err or 'group_provider_failed' end
 
   local out = {}
@@ -62,7 +62,7 @@ function MZHousesGroups.get(groupType, code)
     return cached.value or nil, cached.value and nil or 'group_not_found'
   end
 
-  local row, err = coreExport('GetOrgByCode', code)
+  local row, err = orgExport('GetOrgByCode', code)
   if type(row) ~= 'table' then
     if err == nil or err == 'group_not_found' then
       GroupCache[cacheKey] = { value = false, expiresAt = os.time() + GROUP_CACHE_SECONDS }
@@ -79,7 +79,7 @@ function MZHousesGroups.get(groupType, code)
 end
 
 function MZHousesGroups.memberships(source)
-  local rows, err = coreExport('GetPlayerOrgs', source)
+  local rows, err = orgExport('GetPlayerOrgs', source)
   if type(rows) ~= 'table' then return nil, err or 'group_provider_failed' end
 
   local out = {}

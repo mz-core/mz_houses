@@ -337,23 +337,23 @@ local function getAccessRuleText(rule, defaultRequireMember)
   return table.concat(parts, '+')
 end
 
-local function safeCoreExport(exportName, ...)
-  if GetResourceState('mz_core') ~= 'started' then
-    debugLog('org_access_core_unavailable', {
+local function safeOrgExport(exportName, ...)
+  if GetResourceState('mz_org') ~= 'started' then
+    debugLog('org_access_owner_unavailable', {
       export = exportName,
-      resourceState = GetResourceState('mz_core')
+      resourceState = GetResourceState('mz_org')
     })
     return nil, 'org_access_unavailable'
   end
 
   local args = { ... }
   local ok, result, extra = pcall(function()
-    local coreExports = exports['mz_core']
-    return coreExports[exportName](coreExports, table.unpack(args))
+    local orgExports = exports['mz_org']
+    return orgExports[exportName](orgExports, table.unpack(args))
   end)
 
   if not ok then
-    debugLog('org_access_core_export_failed', {
+    debugLog('org_access_owner_export_failed', {
       export = exportName,
       error = tostring(result)
     })
@@ -431,9 +431,9 @@ local function playerOrgMatches(org, orgCode)
 end
 
 local function getPlayerOrgMembership(source, orgCode)
-  local orgs, err = safeCoreExport('GetPlayerOrgContext', source)
+  local orgs, err = safeOrgExport('GetPlayerOrgContext', source)
   if orgs == nil then
-    orgs, err = safeCoreExport('GetPlayerOrgs', source)
+    orgs, err = safeOrgExport('GetPlayerOrgs', source)
   end
 
   if orgs == nil then
@@ -464,7 +464,7 @@ local function evaluateOrgRules(source, orgCode, rules, defaultRequireMember, su
   end
 
   if requiredCapability then
-    local allowed, err = safeCoreExport('CanOrg', source, orgCode, requiredCapability)
+    local allowed, err = safeOrgExport('CanOrg', source, orgCode, requiredCapability)
     if allowed == nil then
       return false, err or 'org_access_unavailable'
     end
@@ -475,7 +475,7 @@ local function evaluateOrgRules(source, orgCode, rules, defaultRequireMember, su
   end
 
   if requiredGradeLevel then
-    local allowed, err = safeCoreExport('HasGradeOrAbove', source, orgCode, requiredGradeLevel)
+    local allowed, err = safeOrgExport('HasGradeOrAbove', source, orgCode, requiredGradeLevel)
     if allowed == nil then
       return false, err or 'org_access_unavailable'
     end
@@ -723,7 +723,7 @@ local function canAccessOrgProperty(source, code, house, citizenid, isAdmin)
     return false, 'org_access_unavailable'
   end
 
-  local org, orgErr = safeCoreExport('GetOrgByCode', orgCode)
+  local org, orgErr = safeOrgExport('GetOrgByCode', orgCode)
   if org == nil then
     return false, orgErr or 'org_access_denied'
   end
@@ -772,7 +772,7 @@ local function canSeeOrgByMembership(source, code, house)
     return false, 'org_access_unavailable'
   end
 
-  local org = safeCoreExport('GetOrgByCode', orgCode)
+  local org = safeOrgExport('GetOrgByCode', orgCode)
   if org == nil then
     return false, 'org_access_denied'
   end
@@ -1558,6 +1558,7 @@ function MZHousesService.getHouseStashConfig(houseCode)
 
   return {
     id = ('%s%s'):format(prefix, code),
+    propertyId = tonumber(configuredHouse.id),
     label = trim(houseStash.label) ~= '' and trim(houseStash.label) or ('Bau - ' .. code),
     slots = slots,
     weight = weight
@@ -1607,9 +1608,10 @@ function MZHousesService.openHouseStash(source, houseCode, isAdmin, session)
   end
 
   local grantCallOk, grantResultOk, grantResult = pcall(function()
-    return exports['mz_core']:CreateHouseStashAccessGrant(source, {
+    return exports['mz_inventory']:CreateHouseStashAccessGrant(source, {
       houseCode = code,
       stashId = stash.id,
+      propertyId = stash.propertyId,
       label = stash.label,
       slots = stash.slots,
       weight = stash.weight

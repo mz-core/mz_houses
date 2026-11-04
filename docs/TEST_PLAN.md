@@ -171,7 +171,7 @@ Validacao estatica:
 - [x] `CanSeeHouse` reconhece residencia ativa à venda sem transformar visibilidade em autorizacao de entrada.
 - [x] Compra direta envia somente `houseCode`; preço, modo, owner, citizenid e saldo sao relidos no servidor.
 - [x] Lock em memoria e compare-and-set no banco impedem dois owners para a mesma venda.
-- [x] Debito usa `GetMoney`/`RemoveMoney` e compensacao usa `AddMoney`, todos contratos reais do `mz_core`.
+- [x] Debito usa `GetMoney`/`RemoveMoney` e compensacao usa `AddMoney`, todos contratos reais do `mz_economy`.
 - [x] Falha depois do debito executa rollback/refund; impossibilidade de compensacao vira `manual_review` e bloqueia nova compra.
 - [x] Owner por compra desativa venda e limpa chaves antigas; remover owner nao reativa venda.
 - [x] Venda administrativa cobrada exige comprador online e permanece separada da atribuicao sem cobranca.
